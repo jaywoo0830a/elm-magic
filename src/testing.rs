@@ -540,15 +540,31 @@ fn find_first<'a>(el: &'a Element, pred: &dyn Fn(&Element) -> bool) -> Option<&'
     None
 }
 
+/// `on_click`을 가진 자손이 있는가 — 컨테이너 라벨 매칭에서 "더 구체적인 대상"이
+/// 있는지 판단한다 (있으면 그쪽이 눌려야 하므로 컨테이너는 양보한다).
+fn has_clickable_descendant(el: &Element) -> bool {
+    el.children().unwrap_or(&[]).iter().any(|c| {
+        c.on_click().is_some() || has_clickable_descendant(c)
+    })
+}
+
 /// 클릭 핸들러 찾기: 리프(`Button`/`Tab`/`Th`)는 라벨 정확 일치,
-/// 컨테이너(`on_click`이 있는 `Row`/`Col`)는 서브트리 텍스트 일치.
+/// 컨테이너(`on_click`이 있는 `Row`/`Col`)는 서브트리 텍스트 전체 일치 **또는**
+/// 자식 텍스트 노드 중 하나가 라벨과 정확히 일치하면 찾는다.
+///
+/// 뒤 조건 덕분에 제목 + 부가값처럼 자식 텍스트가 둘 이상인 행도 `click("제목")`으로
+/// 누를 수 있다 (`subtree_text()`는 이어 붙인 문자열이라 라벨과 달라진다).
+/// 단, 컨테이너 안에 눌리는 요소가 있으면 그쪽이 더 구체적이므로 컨테이너는 양보한다 —
+/// 안쪽 `Button`이 바깥 행의 핸들러에 가로채이지 않는다.
 fn find_click(el: &Element, text: &str) -> Option<Handler> {
     if let Some(handler) = el.on_click() {
         let leaf = matches!(el.role(), Role::Button | Role::Tab | Role::ColumnHeader);
         let hit = if leaf {
             el.label() == Some(text)
+        } else if el.subtree_text() == text {
+            true
         } else {
-            el.subtree_text() == text
+            !has_clickable_descendant(el) && el.texts().iter().any(|t| t == text)
         };
         if hit {
             return Some(handler.clone());

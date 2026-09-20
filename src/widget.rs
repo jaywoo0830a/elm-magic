@@ -927,6 +927,11 @@ impl Widget for ModalEl {
     }
     fn texts_into(&self, out: &mut Vec<String>) {
         out.push("[modal]".to_string());
+        // 제목은 화면에 보이는 텍스트다 — 어댑터(egui/gpui)가 헤딩으로 그린다.
+        // `text()`/`assert_text(제목)`이 찾을 수 있어야 하므로 수집 대상에 넣는다.
+        if !self.title.is_empty() {
+            out.push(self.title.clone());
+        }
         for c in &self.children {
             c.texts_into(out);
         }
