@@ -5,10 +5,16 @@
 //!
 //! - **팔레트**: elm-magic `Token` → gpui-kit `ThemeColor` ([`palette`]).
 //!   그래서 `css! { .card { bg: surface; } }`가 활성 gpui-kit 테마를 따른다.
-//! - **레이아웃**: `Col`/`Row` → `v_flex`/`h_flex`, `gap`/`padding`/`align`/`justify`.
-//! - **글자**: `font-size` `weight` `italic` `underline` `text-align`
-//!   `text-transform` `truncate` `color`.
-//! - **칠**: `bg` `fill` `border` `radius` `shadow` `opacity`.
+//! - **레이아웃**: `Col`/`Row` → `v_flex`/`h_flex`, `gap`/`padding`/`margin`/`align`/
+//!   `align-self`/`justify`/`flex-direction`/`flex-grow`/`flex-shrink`/`wrap`/
+//!   `aspect-ratio`/`overflow`/`visibility` — 개별 변(`padding-left` …)까지.
+//! - **글자**: `font-size` `weight` `italic` `underline` `strike` `text-align`
+//!   `line-height` `text-transform` `white-space` `text-overflow` `max-lines` `color`.
+//! - **칠**: `bg` `fill` `border`(개별 변 포함) `border-style` `radius` `shadow`
+//!   `opacity`.
+//!
+//! gpui에 대응이 없는 속성만 건너뛴다 — `letter-spacing` / `z-index` / `mono` /
+//! `rotate` / `scale` / `pointer-events` (문서화된 예외).
 //! - **상호작용**: `on_click` / `on_change` / `on_enter`를 `cx.listener`로
 //!   아레나에 전달하고 `cx.notify()`로 elm 프레임을 다시 돈다.
 //!
@@ -35,7 +41,8 @@ use std::any::Any;
 use std::rc::Rc;
 
 use elm_magic::style::{
-    Align as StyleAlign, Color, Cursor, Len, Palette, ResolvedStyle, State, Token,
+    Align as StyleAlign, BorderStyle, Color, Cursor, Direction, Edges, Len, Overflow, Palette,
+    ResolvedStyle, State, Token,
 };
 use elm_magic::{
     Arena, BannerEl, ButtonEl, CheckEl, ColEl, Element, FragmentEl, InputEl, ModalEl, ProgressEl,
@@ -43,14 +50,17 @@ use elm_magic::{
 };
 
 use gpui_kit::base::{box_shadow, StyledExt as _};
+use gpui_kit::component::checkbox::Checkbox;
+use gpui_kit::component::progress::Progress;
+use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{ActiveTheme as _, Theme};
 use gpui_kit::prelude::{
     InteractiveElement as _, IntoElement, ParentElement as _, Render,
     StatefulInteractiveElement as _, Styled as _,
 };
 use gpui_kit::{
-    div, px, relative, AnyElement, ClickEvent, Context, CursorStyle, FocusHandle, Hsla,
-    KeyDownEvent, Rgba, SharedString, TextAlign, Window,
+    div, px, AnyElement, ClickEvent, Context, CursorStyle, FocusHandle, Hsla, KeyDownEvent, Rgba,
+    SharedString, TextAlign, Window,
 };
 
 /// 한 프레임이 그린 위젯 정보 (egui `Pass`와 같은 계약).
@@ -121,19 +131,105 @@ pub fn palette(theme: &Theme) -> Palette {
     p
 }
 
+// ── 0.8 확장 속성 → 실효 값 ─────────────────────────────────
+
+/// 숏핸드(`padding`/`margin`)와 개별 `*-top/right/bottom/left`를 합친다.
+///
+/// 개별 값이 있으면 그 변만 덮어쓴다 (`padding: 8; padding-left: 4`).
+fn combine_edges(
+    base: Option<Edges>,
+    top: Option<f32>,
+    right: Option<f32>,
+    bottom: Option<f32>,
+    left: Option<f32>,
+) -> Option<Edges> {
+    let any = top.is_some() || right.is_some() || bottom.is_some() || left.is_some();
+    match (base, any) {
+        (None, false) => None,
+        (None, true) => Some(Edges::new(
+            top.unwrap_or(0.0),
+            right.unwrap_or(0.0),
+            bottom.unwrap_or(0.0),
+            left.unwrap_or(0.0),
+        )),
+        (Some(b), _) => Some(Edges::new(
+            top.unwrap_or(b.top),
+            right.unwrap_or(b.right),
+            bottom.unwrap_or(b.bottom),
+            left.unwrap_or(b.left),
+        )),
+    }
+}
+
+/// 실효 `padding` — 숏핸드 + `padding-*`.
+fn padding_of(style: &ResolvedStyle) -> Option<Edges> {
+    combine_edges(
+        style.padding,
+        style.padding_top,
+        style.padding_right,
+        style.padding_bottom,
+        style.padding_left,
+    )
+}
+
+/// 실효 `margin` — 숏핸드 + `margin-*`.
+fn margin_of(style: &ResolvedStyle) -> Option<Edges> {
+    combine_edges(
+        style.margin,
+        style.margin_top,
+        style.margin_right,
+        style.margin_bottom,
+        style.margin_left,
+    )
+}
+
+/// `text-transform`을 라벨에 적용한다 — `Text` 밖 위젯(`Button`/`Tab`…)도 같은 규칙을 따른다.
+fn transformed(style: &ResolvedStyle, text: &str) -> String {
+    match style.transform {
+        Some(t) => t.apply(text),
+        None => text.to_string(),
+    }
+}
+
 /// `ResolvedStyle`을 gpui 스타일로 옮긴다 (해석은 코어가 끝냈다 — 매핑만).
+///
+/// 레이아웃·칠·글자·상호작용의 **모든** 확정 필드를 gpui `Styled` 메서드로 대응시킨다.
+/// 대응이 없는 것만 건너뛴다(모듈 문서의 예외 목록 참고).
 fn apply<E: gpui_kit::Styled>(mut el: E, s: &ResolvedStyle) -> E {
+    // ── 칠 ──
     if let Some(bg) = s.bg {
         el = el.bg(hsla_of(bg));
     }
     if let Some(fill) = s.fill {
         el = el.bg(hsla_of(fill));
     }
-    if let Some(w) = s.border_width {
-        el = el.border(px(w));
+    // 테두리 — `border-style: none`이면 두께를 그리지 않는다.
+    let border_off = s.border_style == Some(BorderStyle::None);
+    if !border_off {
+        let base = s.border_width.unwrap_or(0.0);
+        let per_side = s.border_top_width.is_some()
+            || s.border_right_width.is_some()
+            || s.border_bottom_width.is_some()
+            || s.border_left_width.is_some();
+        if per_side {
+            el = el
+                .border_t(px(s.border_top_width.unwrap_or(base)))
+                .border_r(px(s.border_right_width.unwrap_or(base)))
+                .border_b(px(s.border_bottom_width.unwrap_or(base)))
+                .border_l(px(s.border_left_width.unwrap_or(base)));
+        } else if s.border_width.is_some() {
+            el = el.border(px(base));
+        }
     }
     if let Some(c) = s.border_color {
         el = el.border_color(hsla_of(c));
+    }
+    // gpui에는 solid/dashed만 있다 — dotted는 dashed로 근사한다.
+    if matches!(
+        s.border_style,
+        Some(BorderStyle::Dashed) | Some(BorderStyle::Dotted)
+    ) {
+        el = el.border_dashed();
     }
     if let Some(r) = s.radius {
         el = el.rounded(px(r));
@@ -151,14 +247,14 @@ fn apply<E: gpui_kit::Styled>(mut el: E, s: &ResolvedStyle) -> E {
     if let Some(o) = s.opacity {
         el = el.opacity(o);
     }
-    if let Some(e) = s.padding {
+    if let Some(e) = padding_of(s) {
         el = el
             .pt(px(e.top))
             .pb(px(e.bottom))
             .pl(px(e.left))
             .pr(px(e.right));
     }
-    if let Some(e) = s.margin {
+    if let Some(e) = margin_of(s) {
         el = el
             .mt(px(e.top))
             .mb(px(e.bottom))
@@ -187,6 +283,47 @@ fn apply<E: gpui_kit::Styled>(mut el: E, s: &ResolvedStyle) -> E {
     if let Some(v) = s.max_height {
         el = el.max_h(px(v));
     }
+    if let Some(r) = s.aspect_ratio.filter(|r| *r > 0.0) {
+        el = el.aspect_ratio(r);
+    }
+    // ── 플렉스 ──
+    match s.direction {
+        Some(Direction::Row) => el = el.flex_row(),
+        Some(Direction::Column) => el = el.flex_col(),
+        None => {}
+    }
+    if let Some(g) = s.flex_grow {
+        el = el.flex_grow(g);
+    }
+    if let Some(sh) = s.flex_shrink {
+        el = el.flex_shrink(sh);
+    }
+    if let Some(a) = s.align {
+        el = match a {
+            StyleAlign::Start => el.items_start(),
+            StyleAlign::Center => el.items_center(),
+            StyleAlign::End => el.items_end(),
+        };
+    }
+    if let Some(a) = s.align_self {
+        el = match a {
+            StyleAlign::Start => el.self_start(),
+            StyleAlign::Center => el.self_center(),
+            StyleAlign::End => el.self_end(),
+        };
+    }
+    if let Some(a) = s.justify {
+        el = match a {
+            StyleAlign::Start => el.justify_start(),
+            StyleAlign::Center => el.justify_center(),
+            StyleAlign::End => el.justify_end(),
+        };
+    }
+    match s.wrap {
+        Some(true) => el = el.flex_wrap(),
+        Some(false) => el = el.flex_nowrap(),
+        None => {}
+    }
     if let Some(g) = s.gap {
         el = el.gap(px(g));
     }
@@ -196,8 +333,15 @@ fn apply<E: gpui_kit::Styled>(mut el: E, s: &ResolvedStyle) -> E {
     if let Some(g) = s.column_gap {
         el = el.gap_x(px(g));
     }
-    if s.wrap == Some(true) {
-        el = el.flex_wrap();
+    // `overflow: hidden/scroll/auto`는 자식을 자른다 (스크롤은 컨테이너가 따로 건다).
+    if matches!(
+        s.overflow,
+        Some(Overflow::Hidden) | Some(Overflow::Scroll) | Some(Overflow::Auto)
+    ) {
+        el = el.overflow_hidden();
+    }
+    if s.hidden == Some(true) {
+        el = el.invisible();
     }
     if let Some(c) = s.color {
         el = el.text_color(hsla_of(c));
@@ -225,6 +369,15 @@ fn apply<E: gpui_kit::Styled>(mut el: E, s: &ResolvedStyle) -> E {
     }
     if s.truncate == Some(true) {
         el = el.truncate();
+    }
+    if s.nowrap == Some(true) {
+        el = el.whitespace_nowrap();
+    }
+    if s.ellipsis == Some(true) {
+        el = el.text_ellipsis();
+    }
+    if let Some(n) = s.max_lines {
+        el = el.line_clamp(n as usize);
     }
     if let Some(c) = s.cursor {
         el = el.cursor(cursor_of(c));
@@ -417,7 +570,7 @@ impl<'a, 'b, 'c, C: elm_magic::Component + 'static> Builder<'a, 'b, 'c, C> {
                     .px(px(12.))
                     .py(px(8.))
                     .rounded(px(6.))
-                    .child(text.clone()),
+                    .child(transformed(style, text)),
                 style,
             )
             .into_any_element(),
@@ -432,7 +585,7 @@ impl<'a, 'b, 'c, C: elm_magic::Component + 'static> Builder<'a, 'b, 'c, C> {
                 for child in children {
                     d = d.child(self.build(child));
                 }
-                d.into_any_element()
+                apply(d, style).into_any_element()
             }
             Element::Button(ButtonEl {
                 text,
@@ -469,9 +622,10 @@ impl<'a, 'b, 'c, C: elm_magic::Component + 'static> Builder<'a, 'b, 'c, C> {
                 div()
                     .w(px(16.))
                     .h(px(16.))
-                    .rounded_full()
-                    .border(px(2.))
-                    .border_color(hsla_of(palette.get(Token::Border))),
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(Spinner::new()),
                 style,
             )
             .into_any_element(),
@@ -513,32 +667,35 @@ impl<'a, 'b, 'c, C: elm_magic::Component + 'static> Builder<'a, 'b, 'c, C> {
         } else {
             div().h_flex()
         };
-        match style.align {
-            Some(StyleAlign::Start) => d = d.items_start(),
-            Some(StyleAlign::Center) => d = d.items_center(),
-            Some(StyleAlign::End) => d = d.items_end(),
-            None => {}
-        }
-        match style.justify {
-            Some(StyleAlign::Start) => d = d.justify_start(),
-            Some(StyleAlign::Center) => d = d.justify_center(),
-            Some(StyleAlign::End) => d = d.justify_end(),
-            None => {}
-        }
         for child in children {
             d = d.child(self.build(child));
         }
+        // `align`/`justify`/`gap` 등은 `apply`가 스타일에서 옮긴다 (Col/Row 전용이 아니다).
         let d = apply(d, style);
-        if let Some(h) = on_click {
-            let id = self.id();
-            return d
-                .id(id)
-                .cursor(CursorStyle::PointingHand)
-                .on_click(self.cx.listener(move |this, _e: &ClickEvent, _w, cx| {
-                    h(&mut this.ctx.arena);
-                    cx.notify();
-                }))
-                .into_any_element();
+        // `overflow: scroll/auto` — 주축으로 스크롤 영역을 만든다.
+        // 스크롤·클릭은 모두 `Stateful` 요소(id)를 요구하므로 여기서 한 번만 붙인다.
+        let scrolls = matches!(
+            style.overflow,
+            Some(Overflow::Scroll) | Some(Overflow::Auto)
+        );
+        if scrolls || on_click.is_some() {
+            let mut s = d.id(self.id());
+            if scrolls {
+                s = if vertical {
+                    s.overflow_y_scroll()
+                } else {
+                    s.overflow_x_scroll()
+                };
+            }
+            if let Some(h) = on_click {
+                s = s
+                    .cursor(CursorStyle::PointingHand)
+                    .on_click(self.cx.listener(move |this, _e: &ClickEvent, _w, cx| {
+                        h(&mut this.ctx.arena);
+                        cx.notify();
+                    }));
+            }
+            return s.into_any_element();
         }
         d.into_any_element()
     }
@@ -551,6 +708,7 @@ impl<'a, 'b, 'c, C: elm_magic::Component + 'static> Builder<'a, 'b, 'c, C> {
         on_click: Option<Rc<dyn Fn(&mut Arena)>>,
         style: &ResolvedStyle,
     ) -> AnyElement {
+        let text = transformed(style, text);
         let mut d = div()
             .h_flex()
             .justify_center()
@@ -595,6 +753,7 @@ impl<'a, 'b, 'c, C: elm_magic::Component + 'static> Builder<'a, 'b, 'c, C> {
         on_click: Option<Rc<dyn Fn(&mut Arena)>>,
         style: &ResolvedStyle,
     ) -> AnyElement {
+        let text = transformed(style, text);
         let mut d = div()
             .h_flex()
             .items_center()
@@ -631,6 +790,7 @@ impl<'a, 'b, 'c, C: elm_magic::Component + 'static> Builder<'a, 'b, 'c, C> {
         on_click: Option<Rc<dyn Fn(&mut Arena)>>,
         style: &ResolvedStyle,
     ) -> AnyElement {
+        let text = transformed(style, text);
         let mut d = div().h_flex().items_center().child(text.to_string());
         if style.bold.is_none() {
             d = d.font_bold();
@@ -651,7 +811,9 @@ impl<'a, 'b, 'c, C: elm_magic::Component + 'static> Builder<'a, 'b, 'c, C> {
         d.into_any_element()
     }
 
-    /// `<Check>` — 클릭하면 반대 값으로 `on_change`.
+    /// `<Check>` — gpui-kit `Checkbox`(실제 체크 표시 + 라벨)로 그린다.
+    ///
+    /// `on_change`는 요청된 값을 `bool`로 받는다 (제어 컴포넌트 계약).
     fn check(
         &mut self,
         checked: bool,
@@ -659,27 +821,17 @@ impl<'a, 'b, 'c, C: elm_magic::Component + 'static> Builder<'a, 'b, 'c, C> {
         on_change: Option<Rc<dyn Fn(&mut Arena, bool)>>,
         style: &ResolvedStyle,
     ) -> AnyElement {
-        let mark = if checked { "✓" } else { "" };
-        let d = div()
-            .h_flex()
-            .items_center()
-            .gap(px(6.))
-            .child(mark.to_string())
-            .child(label.to_string());
-        let d = apply(d, style);
+        let label = transformed(style, label);
+        let id = self.id();
+        let mut d = Checkbox::new(id).checked(checked).label(label.clone());
         if let Some(h) = on_change {
-            let next = !checked;
-            let id = self.id();
-            return d
-                .id(id)
-                .cursor(CursorStyle::PointingHand)
-                .on_click(self.cx.listener(move |this, _e: &ClickEvent, _w, cx| {
-                    h(&mut this.ctx.arena, next);
-                    cx.notify();
-                }))
-                .into_any_element();
+            d = d.on_change(self.cx.listener(move |this, value: &bool, _w, cx| {
+                h(&mut this.ctx.arena, *value);
+                cx.notify();
+            }));
         }
-        d.into_any_element()
+        self.pass.labeled.push(label);
+        apply(d, style).into_any_element()
     }
 }
 
@@ -764,30 +916,17 @@ impl<'a, 'b, 'c, C: elm_magic::Component + 'static> Builder<'a, 'b, 'c, C> {
         d.into_any_element()
     }
 
-    /// `<Progress value={0..1} />` — 트랙 + 채움 막대.
+    /// `<Progress value={0..1} />` — gpui-kit `Progress`(테마 트랙 + 값)로 그린다.
     fn progress(&mut self, value: f64, style: &ResolvedStyle) -> AnyElement {
-        let height = match style.height {
-            Some(Len::Px(v)) => v,
-            _ => style.min_height.unwrap_or(8.0),
-        };
-        let frac = (value as f32).clamp(0.0, 1.0);
-        let fill = style
+        let id = self.id();
+        // elm은 0..1, gpui-kit은 0..100.
+        let frac = (value.clamp(0.0, 1.0) * 100.0) as f32;
+        let color = style
             .fill
             .map(hsla_of)
             .unwrap_or_else(|| hsla_of(self.palette.get(Token::Primary)));
-        let track_bg = style
-            .bg
-            .map(hsla_of)
-            .unwrap_or_else(|| hsla_of(self.palette.get(Token::SurfaceAlt)));
-        let bar = div().w(relative(frac)).h_full().bg(fill);
-        let track = div()
-            .w_full()
-            .h(px(height))
-            .bg(track_bg)
-            .rounded(px(height / 2.0))
-            .overflow_hidden()
-            .child(bar);
-        apply(track, style).into_any_element()
+        let d = Progress::new(id).value(frac).color(color);
+        apply(d, style).into_any_element()
     }
 
     /// `<Modal>` — 제목 + 자식 패널 (오버레이는 플랫폼에 맡긴다).
@@ -804,7 +943,7 @@ impl<'a, 'b, 'c, C: elm_magic::Component + 'static> Builder<'a, 'b, 'c, C> {
             .rounded(px(8.))
             .bg(hsla_of(self.palette.get(Token::Surface)));
         if !title.is_empty() {
-            panel = panel.child(title.to_string());
+            panel = panel.child(transformed(style, title));
         }
         for child in children {
             panel = panel.child(self.build(child));

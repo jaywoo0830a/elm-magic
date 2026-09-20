@@ -120,6 +120,16 @@ impl Render for Hello {
 `theme.popover`, `color: text_dim`은 `theme.muted_foreground`로 매핑되므로 라이트/다크/
 커스텀 테마를 바꾸면 `css!` 색도 따라온다. `<Raw>`는 `&mut gpui_kit::Window`를 받는다.
 
+속성 매핑은 `ResolvedStyle`의 **확정 필드 전부**를 덮는다 — 레이아웃(`flex-direction`
+`flex-grow` `flex-shrink` `align-self` `aspect-ratio` `overflow` `visibility`, 개별 변
+`padding-left`·`border-top-width` 포함), 글자(`white-space` `text-overflow` `max-lines`),
+칠(`border-style`), 그림자·투명도까지. gpui에 대응이 없는 `letter-spacing` / `z-index` /
+`mono` / `rotate` / `scale` / `pointer-events`만 건너뛴다.
+
+위젯도 gpui-kit 컴포넌트를 쓴다 — `<Check>`는 `Checkbox`, `<Progress>`는 `Progress`,
+`<Spinner>`는 `Spinner`로 그려져 테마·애니메이션·포커스 링이 그대로 따라온다.
+`text-transform`은 `Text`뿐 아니라 `Button`/`Tab`/`Th`/`Banner`/`Checkbox` 라벨에도 적용된다.
+
 ## 기능 요약
 
 - **상태**: 매개변수 = 상태 슬롯, `n += 1` / `x = y` / `items.push(..)` / `remove(..)`,
