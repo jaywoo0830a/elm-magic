@@ -12,3 +12,31 @@ categories = ["gui"]
 [dependencies]
 elm-magic = { path = "../..", version = "0.8.2" }
 egui = "0.36"
+
+# ── 벤치마크 (measurement) ───────────────────────────────────
+#
+# `tests/`가 아니라 `benchmark/`에 둔다 — 계약(테스트 290개)과 측정을 섞지 않기
+# 위해서다. Cargo의 자동 탐색은 `tests/`만 보므로 여기서 **명시 등록**한다.
+# 실행: `cargo test -p elm-magic-egui --test benchmark_phases --release -- --nocapture`
+#
+# debug 빌드로 돌리면 각 측정이 `SKIP`을 찍는다(수치가 의미 없다). 시간 회귀
+# 단언은 `ELM_MAGIC_PERF=1`을 켰을 때만 활성화된다 — CI에서 flaky하지 않게.
+[[test]]
+name = "benchmark_phases"
+path = "benchmark/phases.rs"
+
+[[test]]
+name = "benchmark_baselines"
+path = "benchmark/baselines.rs"
+
+[[test]]
+name = "benchmark_hotspots"
+path = "benchmark/hotspots.rs"
+
+[[test]]
+name = "benchmark_rules"
+path = "benchmark/rules.rs"
+
+[[test]]
+name = "benchmark_guard"
+path = "benchmark/guard.rs"

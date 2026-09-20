@@ -61,6 +61,24 @@
 //! 크기처럼 표현 수단이 없는 장식은 리셋되므로, 필요하면 `width`/`font-size` 같은
 //! 선언으로 지정한다.
 
+//! ## 성능 (0.8.3)
+//!
+//! 그림은 그대로 두고 비용만 줄인 것들 — 근거는 `benchmark/README.md`의 실측이다:
+//!
+//! - **[`render_fast`]** — 앱 경로. `Pass` 기록(`styles`/`buttons`/`checks`)을 채우지
+//!   않는다(1,000행에서 프레임 4.27ms → 3.48ms).
+//! - **프레임 단위 스타일 해석 캐시** — 같은 노드를 한 프레임에 3~5회 해석하던 것을
+//!   (intrinsic 예산 → 자식 루프 → 그리기) 1회로. 해석은 등록 규칙 수에 선형이라
+//!   규칙이 많은 앱에서 결정적이다(규칙당 약 5ns).
+//! - **주축 예산 프리패스 단락** — `justify`/`wrap`/내용 폭 고정/`align-self`가 없고
+//!   가변 자식도 없으면 `child_budgets`를 건너뛴다.
+//! - **`Frame` 없는 컨테이너** — 배경/여백/모서리/테두리/그림자가 하나도 선언되지
+//!   않으면 `ui.scope`만 쓴다(`Frame::NONE.show`보다 1.6배 싸다).
+//!
+//! 남은 비용의 정체는 **노드마다 만드는 egui `Ui` 조작 수**다 — 손으로 쓴 egui가
+//! 프레임워크 호출 하나로 끝내는 일을 어댑터는 스코프/프레임/자리 예약으로 나눠 한다.
+//! `ui.scope` 273ns, `Frame::show` 425ns, `ui.with_layout` 265ns가 노드 수만큼 곱해진다.
+
 use elm_magic::style::{
     Align as StyleAlign, BorderStyle, Color, Cursor, Direction, Edges, Len, Overflow, Palette,
     ResolvedStyle, State, Token,
@@ -70,6 +88,8 @@ use elm_magic::{
     BannerEl, ButtonEl, CheckEl, ColEl, DividerEl, Element, FragmentEl, InputEl, ModalEl,
     ProgressEl, RawEl, RowEl, SpinnerEl, StrongEl, TabEl, TdEl, TextAreaEl, TextEl, ThEl, Widget,
 };
+use std::cell::RefCell;
+use std::collections::HashMap;
 
 /// 한 패스가 만든 위젯 정보.
 pub struct Pass {
@@ -112,6 +132,33 @@ pub fn render_with_palette(
     arena: &mut Arena,
     palette: &Palette,
 ) -> Pass {
+    render_walk(ui, tree, arena, palette, true)
+}
+
+/// 스타일 **기록 없이** 그린다 — 앱 실행 경로(0.8.3).
+///
+/// [`render`]와 같은 그림을 그리지만 `Pass`의 기록(`styles`/`buttons`/`checks`)을
+/// 채우지 않는다. 그 기록은 노드마다 `ResolvedStyle`(수백 바이트)과 버튼 라벨
+/// (`String`)을 복제해 쌓아서, 3,000노드 트리에서 프레임당 약 2MB를 memcpy하고
+/// 버튼 수만큼 힙 할당을 한다 — 앱은 그 목록을 쓰지 않는다.
+/// 스타일·버튼이 실제로 전달됐는지 확인해야 하는 테스트/디버깅은 [`render`]를 쓴다.
+pub fn render_fast(ui: &mut egui::Ui, tree: &Element, arena: &mut Arena) -> Pass {
+    let palette = if ui.visuals().dark_mode {
+        Palette::dark()
+    } else {
+        Palette::light()
+    };
+    render_walk(ui, tree, arena, &palette, false)
+}
+
+/// 공통 경로: `record`가 `false`면 `Pass` 기록(`styles`/`buttons`/`checks`)을 채우지 않는다.
+fn render_walk(
+    ui: &mut egui::Ui,
+    tree: &Element,
+    arena: &mut Arena,
+    palette: &Palette,
+    record: bool,
+) -> Pass {
     let mut walk = Walk {
         pass: Pass {
             buttons: Vec::new(),
@@ -123,12 +170,33 @@ pub fn render_with_palette(
         node: 0,
         palette,
         main_budget: None,
+        record,
+        cache: RefCell::new(HashMap::new()),
     };
     ui.scope(|ui| {
         reset_style(ui, palette);
         render_el(&mut walk, ui, tree, arena);
     });
     walk.pass
+}
+
+/// 프레임 안에서 같은 노드를 여러 번 해석하지 않기 위한 키 (0.8.3).
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct StyleKey {
+    /// 노드 주소 — 트리는 프레임 동안 고정이라 안정적이다.
+    node: usize,
+    /// `:hover` `:active` `:focus` `:disabled` 비트.
+    state: u8,
+    /// 조상 깊이 (조상 경로가 다르면 결과가 다르다).
+    depth: u16,
+}
+
+/// 상태 4비트 — 캐시 키용.
+fn state_bits(state: State) -> u8 {
+    u8::from(state.hovered)
+        | (u8::from(state.active) << 1)
+        | (u8::from(state.focused) << 2)
+        | (u8::from(state.disabled) << 3)
 }
 
 /// 순회 상태 — 조상 경로 · 상속 · 노드 번호.
@@ -144,9 +212,33 @@ struct Walk<'a> {
     /// 부모가 배분한 **주축 크기**(px) — `width/height: fill`과 `justify` 컨테이너가 쓴다.
     /// 뒤 형제의 몫을 예약한 결과라서 형제를 밀어내지 않는다.
     main_budget: Option<f32>,
+    /// `Pass.styles`에 확정 스타일을 기록하는가 (앱 경로는 끈다).
+    record: bool,
+    /// 이번 프레임 스타일 해석 캐시.
+    ///
+    /// 한 프레임에 같은 노드를 여러 번 해석한다 — intrinsic 예산 계산, 자식 루프의
+    /// `align-self`/`flex-grow`/`fill` 확인, 그리고 그리기. 해석은 호출마다 전역
+    /// 등록부를 훑어 **O(등록 규칙 수)**이므로(`benchmark_rules.rs`: 규칙당 약 5ns),
+    /// 규칙이 많은 앱에서는 그 반복이 그대로 프레임 시간이 된다.
+    /// 키가 (주소, 상태, 깊이)라 같은 트리·같은 프레임에서는 결과가 같다.
+    cache: RefCell<HashMap<StyleKey, ResolvedStyle>>,
 }
 
 impl<'a> Walk<'a> {
+    /// 조상 경로·상속·상태까지 반영한 확정 스타일 (캐시 경유).
+    fn style_of(&self, el: &Element, state: State) -> ResolvedStyle {
+        let key = StyleKey {
+            node: el as *const Element as usize,
+            state: state_bits(state),
+            depth: self.ancestors.len() as u16,
+        };
+        if let Some(hit) = self.cache.borrow().get(&key) {
+            return *hit;
+        }
+        let style = el.resolved_style_in(&self.ancestors, state, self.parent_style(), self.palette);
+        self.cache.borrow_mut().insert(key, style);
+        style
+    }
     /// 이 노드의 메모리 키.
     fn key(&self) -> egui::Id {
         egui::Id::new(("elm-magic-style", self.node))
@@ -457,6 +549,18 @@ fn layout_of(style: &ResolvedStyle, vertical: bool) -> egui::Layout {
     }
 }
 
+/// `frame_of`가 실제로 칠할 것이 있는가 — 없으면 `Frame`을 만들지 않는다.
+///
+/// `Frame::NONE.show`는 `ui.scope`보다 1.6배 비싸다(`benchmark_hotspots` H8).
+fn paints_frame(style: &ResolvedStyle) -> bool {
+    style.bg.is_some()
+        || padding_of(style).is_some()
+        || margin_of(style).is_some()
+        || style.radius.is_some()
+        || border_of(style).is_some()
+        || style.shadow.is_some()
+}
+
 /// 배경·여백·모서리·테두리·그림자 → egui `Frame`.
 fn frame_of(style: &ResolvedStyle, palette: &Palette) -> egui::Frame {
     let mut frame = egui::Frame::NONE;
@@ -688,14 +792,9 @@ fn border_main(style: &ResolvedStyle, _horizontal: bool) -> f32 {
     border_of(style).unwrap_or(0.0).max(0.0) * 2.0
 }
 
-/// `intrinsic_main`과 같은 규칙으로 확정 스타일만 구한다.
+/// `intrinsic_main`과 같은 규칙으로 확정 스타일만 구한다 (캐시 경유).
 fn resolve_style(walk: &Walk<'_>, el: &Element) -> ResolvedStyle {
-    el.resolved_style_in(
-        &walk.ancestors,
-        State::new(false, false, false, el.is_disabled()),
-        walk.parent_style(),
-        walk.palette,
-    )
+    walk.style_of(el, State::new(false, false, false, el.is_disabled()))
 }
 
 /// 텍스트의 실제 크기(주축 방향) — egui 폰트로 잰다 (선언한 크기·스타일 반영).
@@ -864,6 +963,33 @@ fn intrinsic_main(walk: &Walk<'_>, ui: &egui::Ui, el: &Element, horizontal: bool
         _ => Some(0.0),
     };
     content.map(finish)
+}
+
+/// 자식에게 배분할 **주축 예산이 필요한가** (0.8.3).
+///
+/// 필요 조건은 다섯이다: `justify`(남는 공간을 정렬에 쓴다) · `wrap`(줄바꿈 크기를 미리
+/// 예약한다) · 내용 폭 고정(`cross_shrink`) · `align-self`(행 높이 기준 정렬) · 그리고
+/// **가변 자식**(`width`/`height: fill` 또는 `flex-grow > 0`)의 존재.
+///
+/// 어느 것도 아니면 `child_budgets`가 자식 트리를 통째로 다시 도는 일은 순수 낭비다 —
+/// `intrinsic_main`은 텍스트마다 갈레이를 재고 컨테이너마다 서브트리를 도는데,
+/// 그 결과(`budgets = [None; n]`)는 어차피 쓰이지 않는다.
+fn needs_main_budgets(
+    walk: &Walk<'_>,
+    style: &ResolvedStyle,
+    children: &[Element],
+    horizontal: bool,
+    wrap_children: bool,
+    cross_shrink: bool,
+    has_align_self: bool,
+) -> bool {
+    if style.justify.is_some() || wrap_children || cross_shrink || has_align_self {
+        return true;
+    }
+    children.iter().any(|c| {
+        let s = resolve_style(walk, c);
+        s.flex_grow.unwrap_or(0.0) > 0.0 || matches!(declared_axis(&s, horizontal), Some(Len::Fill))
+    })
 }
 
 /// 가변 자식(`fill` / `justify` 컨테이너 / 입력)에게 나눠줄 주축 크기와,
@@ -1275,13 +1401,13 @@ fn render_el<'a>(walk: &mut Walk<'a>, ui: &mut egui::Ui, el: &'a Element, arena:
     let palette = walk.palette;
     let id = walk.key();
     let state = read_state(ui.ctx(), id, is_disabled(el));
-    let mut style = el.resolved_style_in(&walk.ancestors, state, walk.parent_style(), palette);
+    let mut style = walk.style_of(el, state);
     walk.node += 1;
 
     // `display: none` — 자리도 차지하지 않는다
     // (단 **해석된 스타일은 기록한다** — `pass.styles`로 CSS가 파싱됐는지 확인할 수 있다.)
     if style.is_display_none() {
-        if !style.is_empty() {
+        if walk.record && !style.is_empty() {
             walk.pass.styles.push((el.tag(), style));
         }
         return;
@@ -1292,7 +1418,7 @@ fn render_el<'a>(walk: &mut Walk<'a>, ui: &mut egui::Ui, el: &'a Element, arena:
             style.color = Some(palette.get(banner_token(kind)));
         }
     }
-    if !style.is_empty() {
+    if walk.record && !style.is_empty() {
         walk.pass.styles.push((el.tag(), style));
     }
 
@@ -1487,7 +1613,9 @@ fn draw_body_inner<'a>(
                 }
             }
             drawn = Drawn::of(&resp);
-            walk.pass.buttons.push((text.clone(), resp));
+            if walk.record {
+                walk.pass.buttons.push((text.clone(), resp));
+            }
         }
         Element::Tab(TabEl {
             text,
@@ -1521,7 +1649,9 @@ fn draw_body_inner<'a>(
                 }
             }
             drawn = Drawn::of(&resp);
-            walk.pass.buttons.push((text.clone(), resp));
+            if walk.record {
+                walk.pass.buttons.push((text.clone(), resp));
+            }
         }
         Element::Th(ThEl { text, on_click, .. }) => {
             let mut button = egui::Button::new(rich(text, &style, true));
@@ -1543,7 +1673,9 @@ fn draw_body_inner<'a>(
                 }
             }
             drawn = Drawn::of(&resp);
-            walk.pass.buttons.push((text.clone(), resp));
+            if walk.record {
+                walk.pass.buttons.push((text.clone(), resp));
+            }
         }
         Element::Td(TdEl { text, .. }) => {
             let resp = text_with_budget(ui, walk.main_budget, text, &style, false, |ui| {
@@ -1648,7 +1780,9 @@ fn draw_body_inner<'a>(
             }
             let resp = decorate(resp, &style);
             drawn = Drawn::of(&resp);
-            walk.pass.checks.push((label.clone(), resp));
+            if walk.record {
+                walk.pass.checks.push((label.clone(), resp));
+            }
         }
         Element::Modal(ModalEl {
             title,
@@ -1759,7 +1893,12 @@ fn container<'a>(
     } else {
         None
     };
-    let inner = frame_of(style, palette).show(ui, |ui| {
+    // 선언된 프레임 속성이 하나도 없으면 `Frame`을 만들지 않는다 (0.8.3).
+    //
+    // `Frame::NONE.show`는 `ui.scope`보다 비싸다 (H8: 426ns vs 269ns) — 컨테이너마다
+    // 한 번씩 만들어지므로 노드 수만큼 곱해진다. `Frame`은 배경/여백/모서리/테두리/
+    // 그림자를 칠할 때만 필요하다.
+    let mut body = |walk: &mut Walk<'a>, ui: &mut egui::Ui| {
         // `overflow: hidden/scroll/auto` — 넘치는 자식을 컨테이너 안으로 자른다.
         if clips_children(style) {
             ui.set_clip_rect(ui.max_rect());
@@ -1783,9 +1922,21 @@ fn container<'a>(
                 // 이 컨테이너의 내용 폭을 기준으로 풀린다(버그 2).
                 ui.set_max_width(v);
             }
-            // 뒤 형제의 몫을 예약한 주축 예산 + 주축에 남는 공간(정렬용)
-            let (budgets, extra) =
-                child_budgets(walk, ui, children, horizontal, gap.unwrap_or(0.0));
+            // 뒤 형제의 몫을 예약한 주축 예산 + 주축에 남는 공간(정렬용).
+            // 예산이 필요 없는 컨테이너는 자식 트리를 **다시 돌지 않는다** (0.8.3).
+            let (budgets, extra) = if needs_main_budgets(
+                walk,
+                style,
+                children,
+                horizontal,
+                wrap_children,
+                cross_shrink.is_some(),
+                row_cross > 0.0,
+            ) {
+                child_budgets(walk, ui, children, horizontal, gap.unwrap_or(0.0))
+            } else {
+                (vec![None; children.len()], 0.0)
+            };
             ui.with_layout(layout_of(style, vertical), |ui| {
                 // `justify: center/end` — 남는 공간을 **앞에** 넣는다.
                 // (egui의 `Layout::main_align`은 자식 배치에 쓰이지 않아 0.7.4에는 무효였다.)
@@ -1839,7 +1990,12 @@ fn container<'a>(
         } else {
             render_children(walk, ui);
         }
-    });
+    };
+    let inner = if paints_frame(style) {
+        frame_of(style, palette).show(ui, |ui| body(walk, ui))
+    } else {
+        ui.scope(|ui| body(walk, ui))
+    };
     if let Some(h) = on_click {
         let resp = ui.interact(inner.response.rect, inner.response.id, egui::Sense::click());
         if resp.clicked() && interactive(style) {

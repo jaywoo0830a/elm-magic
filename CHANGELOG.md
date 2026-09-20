@@ -25,6 +25,28 @@
 
 ## [Unreleased] — 0.8.x 조건/반복 + `IntoView`
 
+### Performance — egui 어댑터
+
+측정 중심의 벤치마크(`crates/elm-magic-egui/benchmark/`, 아래 "Tests" 참고)로 병목을
+잡아 다음을 고쳤다. 참조 화면(1,000행 목록 = 3,005노드)에서 어댑터 한 프레임
+**4.27ms → 3.48ms (-19%)**, 3,000행(9,005노드)에서 **14.6ms → 10.6ms (-28%)**.
+남은 비용의 정체는 "노드마다 만드는 egui `Ui` 조작 수"로 귀속된다(그 문서 §6).
+
+- `elm_magic_egui::render_fast` 추가 — `Pass`의 기록(`styles`/`buttons`/`checks`)을
+  채우지 않는 **앱 경로**. 그 기록은 노드마다 `ResolvedStyle`(약 600바이트)과 버튼
+  라벨 `String`을 복제해 프레임당 약 2MB를 memcpy했다(3,005노드에서 복제 3,004회).
+  스타일/버튼 전달을 검증하는 테스트·디버깅은 기존 `render`/`render_with_palette`를
+  그대로 쓴다(계약 유지).
+- **스타일 해석 캐시** — 한 프레임에 같은 노드를 3~5회 해석하던 반복을 1회로 줄였다
+  (intrinsic 예산 → 자식 루프 → 그리기). 키는 (노드 주소, 상태 4비트, 조상 깊이).
+  해석은 호출마다 전역 등록부를 훑어 **등록 규칙당 약 5ns**가 들므로(실측), 규칙이
+  200개인 앱에서 약 6ms, 1,000개면 약 40ms를 없앤다.
+- **주축 예산 프리패스 단락** — `justify`/`wrap`/내용 폭 고정/`align-self`가 없고
+  가변 자식(`fill`/`flex-grow`)도 없으면 `child_budgets`(자식 트리 재순회 + 텍스트
+  측정)를 건너뛴다. 결과가 쓰이지 않는 계산이었다.
+- **`Frame::NONE` → `ui.scope`** — 배경/여백/모서리/테두리/그림자가 하나도 선언되지
+  않은 컨테이너는 `Frame`을 만들지 않는다 (`Frame::NONE.show` 425ns vs `ui.scope` 273ns).
+
 ### Added
 
 - `IntoView`(§3.2) — children 자리의 `{expr}`이 `IntoView`를 구현한 값이면 무엇이든 그린다.
@@ -74,6 +96,14 @@
   `&'static str`이 `& ' static str`로 깨지던 문제. `render_tokens`로 통일했다.
 
 ### Tests
+
+- `crates/elm-magic-egui/benchmark/` — **측정 중심 벤치마크** (계약 스위트와 분리;
+  `Cargo.toml`의 `[[test]]`로 명시 등록, `benchmark/README.md`에 방법론·실측·병목 귀속).
+  단계 분해(`benchmark_phases`: P0~P5), 손 egui 기준선(`benchmark_baselines`: naive/tuned
+  vs 어댑터 + 페인트 명령 수), 핫스팟(`benchmark_hotspots`: H1~H8 — 해석 단가, 깊이,
+  keyed 슬롯, 클래스 매칭, egui temp 왕복, `Pass` 복제, **egui 조작 단가표**),
+  규칙 수 스윕(`benchmark_rules`), 구조 회귀 가드(`benchmark_guard`: 트리 모양 3n+5,
+  기록 ≤ 노드 수, 프레임 반복 시 egui temp data 불변 + `ELM_MAGIC_PERF=1`일 때만 시간 예산).
 
 - `tests/0.8/` 계약 테스트 6종(44개): `v0_8_if_else`, `v0_8_for_loop`, `v0_8_switch`,
   `v0_8_fragment`, `v0_8_into_view`, `v0_8_interop`. 구현 현황은 `tests/0.8/README.md` 참고.

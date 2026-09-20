@@ -93,9 +93,14 @@ use elm_magic::prelude::*;
 
 fn counter_ui(ui: &mut egui::Ui, ctx: &mut Ctx) {
     let tree = elm_magic::frame::<Counter>(ctx, &CounterProps::default());
-    elm_magic_egui::render(ui, &tree, &mut ctx.arena);
+    elm_magic_egui::render_fast(ui, &tree, &mut ctx.arena);  // 앱 경로
 }
 ```
+
+`render_fast`는 그림은 같지만 `Pass`의 **기록을 채우지 않는다** — `styles`/`buttons`/
+`checks`가 필요 없는 앱은 이쪽이 빠르다(1,000행 목록에서 한 프레임 4.20ms → 3.43ms).
+스타일이 실제로 적용됐는지 확인하는 테스트·디버깅은 `render`를 쓴다.
+측정 방법과 병목 귀속은 `crates/elm-magic-egui/benchmark/README.md`에 있다.
 
 ## gpui-kit에 그리기
 
