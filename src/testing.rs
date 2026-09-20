@@ -543,9 +543,10 @@ fn find_first<'a>(el: &'a Element, pred: &dyn Fn(&Element) -> bool) -> Option<&'
 /// `on_click`을 가진 자손이 있는가 — 컨테이너 라벨 매칭에서 "더 구체적인 대상"이
 /// 있는지 판단한다 (있으면 그쪽이 눌려야 하므로 컨테이너는 양보한다).
 fn has_clickable_descendant(el: &Element) -> bool {
-    el.children().unwrap_or(&[]).iter().any(|c| {
-        c.on_click().is_some() || has_clickable_descendant(c)
-    })
+    el.children()
+        .unwrap_or(&[])
+        .iter()
+        .any(|c| c.on_click().is_some() || has_clickable_descendant(c))
 }
 
 /// 클릭 핸들러 찾기: 리프(`Button`/`Tab`/`Th`)는 라벨 정확 일치,
