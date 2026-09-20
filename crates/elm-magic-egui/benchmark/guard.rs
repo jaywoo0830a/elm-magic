@@ -58,8 +58,10 @@ fn pass_records_at_most_one_style_per_node() {
 
 /// 프레임을 반복해도 egui 메모리(temp data)가 자라지 않는다.
 ///
-/// 어댑터는 노드마다 `NodeMemory`를 temp data에 넣는다 — 키가 노드 순번이라
-/// 같은 트리에서는 매 프레임 같은 키를 덮어쓴다. 트리 크기가 바뀌면 늘었다 줄어든다.
+/// 어댑터가 egui temp data에 남기는 것은 두 종류뿐이다: 노드별 `NodeMemory`
+/// (상태를 보는 규칙이 있을 때만)와 스타일 캐시(스레드 지역 — egui 메모리가 아니다).
+/// 참조 트리에는 `:hover`/`:focus` 규칙이 없으므로 항목 수는 **0**이어야 하고,
+/// 규칙이 있는 트리에서는 노드 수만큼(자기 키를 매 프레임 덮어쓴다) 유지되어야 한다.
 #[test]
 fn egui_memory_is_stable_across_frames() {
     let egui_ctx = egui::Context::default();
@@ -108,7 +110,9 @@ fn frame_budget_under_load() {
         return;
     }
     let egui_ctx = egui::Context::default();
-    for (n, budget_ms) in [(100usize, 4.0f64), (1_000, 20.0), (3_000, 60.0)] {
+    // 예산은 실측(0.30 / 2.97 / 9.14ms)의 약 2.7배 — 노이즈는 통과하고 실제
+    // 회귀(예: 캐시·게이트가 꺼지면 +40%)는 잡히는 폭이다.
+    for (n, budget_ms) in [(100usize, 2.0f64), (1_000, 8.0), (3_000, 25.0)] {
         let mut app = mount_with::<BenchList>(BenchListProps {
             items: Some(items(n)),
             ..Default::default()

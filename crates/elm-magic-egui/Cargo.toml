@@ -38,5 +38,9 @@ name = "benchmark_rules"
 path = "benchmark/rules.rs"
 
 [[test]]
+name = "benchmark_state"
+path = "benchmark/state.rs"
+
+[[test]]
 name = "benchmark_guard"
 path = "benchmark/guard.rs"

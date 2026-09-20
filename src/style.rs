@@ -1626,6 +1626,27 @@ pub fn reset_for_tests() {
     reg.by_text.clear();
 }
 
+/// 등록된 규칙이 **포인터/포커스 상태**를 요구하는가 (`:hover`/`:active`/`:focus`).
+///
+/// `:disabled`는 요소 자체(`Widget::is_disabled`)에서 오므로 세지 않는다.
+///
+/// 어댑터는 이 값이 `false`면 노드마다 하는 상호작용 상태 추적(temp data 읽기/쓰기 +
+/// 컨텍스트 락 3~4회)을 통째로 건너뛸 수 있다 — 어떤 규칙도 그 상태를 보지 않으므로
+/// 결과가 바뀌지 않는다. 실측 비용은 `crates/elm-magic-egui/benchmark/README.md` 참고.
+///
+/// ```ignore
+/// // css!에 `:hover`가 하나도 없으면 `false`
+/// assert!(!elm_magic::style::needs_pointer_state());
+/// ```
+pub fn needs_pointer_state() -> bool {
+    registry()
+        .lock()
+        .unwrap()
+        .rules
+        .iter()
+        .any(|r| r.selector.state.hovered || r.selector.state.active || r.selector.state.focused)
+}
+
 /// 렉터 스트 그대로의 조회 (`.card`, `button`, `.card Button`).
 pub fn lookup(selector: &str) -> Option<StyleProps> {
     let reg = registry().lock().unwrap();

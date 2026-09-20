@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+#
+# elm-magic-egui 성능 측정을 한 번에 돌린다.
+#
+#   bash ./bench                  기본 크기(100 / 1,000 / 3,000행)로 전부
+#   bash ./bench 1000             지정한 크기만
+#   bash ./bench 200 2000         여러 크기
+#   bash ./bench --quick          작은 크기(100행)로 빠르게 (스모크/회귀 확인)
+#   bash ./bench --guard          구조 회귀 가드만 (시간 예산은 --perf와 함께)
+#   bash ./bench --perf           benchmark_guard의 **시간 예산 단언**까지 켠다
+#   bash ./bench --out perf.md    결과를 파일로도 남긴다 (붙여넣기용)
+#
+# 하는 일 (각각 별도 테스트 바이너리 = 별도 프로세스):
+#
+#   1. benchmark_phases    — 단계 분해 P0~P5 (egui 바닥/트리/해석/어댑터/앱 경로/테셀레이션)
+#   2. benchmark_baselines — 손 egui(naive·tuned) vs 어댑터 + 페인트 명령 구성
+#   3. benchmark_hotspots  — 병목 후보별 분리 측정 H1~H8 (H8 = egui 조작 단가표)
+#   4. benchmark_rules     — 등록 규칙 수 스윕 (레지스트리를 비우므로 단독 프로세스)
+#   5. benchmark_guard     — 벽시계에 기대지 않는 구조 불변식 (+ --perf면 시간 예산)
+#
+# 측정 규약: **릴리스 전용**(debug는 각 측정이 SKIP을 찍는다), 헤드리스
+# `egui::Context::run_ui`, 워밍업 후 min/median/p90, 구조 단언은 항상/시간 단언은 옵트인.
+# 자세한 해석과 병목 귀속은 `crates/elm-magic-egui/benchmark/README.md` 참고.
+#
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$REPO_ROOT"
+
+# 측정 대상 테스트 (순서 = 출력 순서)
+TARGETS=(benchmark_phases benchmark_baselines benchmark_hotspots benchmark_rules benchmark_state)
+GUARD=benchmark_guard
+
+SIZES=""
+OUT=""
+ONLY_GUARD=0
+PERF=0
+
+if [[ -t 1 ]]; then
+  BOLD=$'\033[1m'; DIM=$'\033[2m'; RESET=$'\033[0m'
+else
+  BOLD=""; DIM=""; RESET=""
+fi
+
+log()  { printf '\n%s==>%s %s\n' "$BOLD" "$RESET" "$*"; }
+note() { printf '  %s%s%s\n' "$DIM" "$*" "$RESET"; }
+
+usage() {
+  cat <<'EOF'
+사용법: bash ./bench [크기…] [옵션]
+
+  bash ./bench                기본 크기(100 / 1,000 / 3,000행)로 전부 돌린다
+  bash ./bench 1000           그 크기만 (쉼표 없이 여러 개 가능: `bash ./bench 200 5000`)
+  bash ./bench --quick        작은 크기(100행)로 빠르게
+  bash ./bench --guard        구조 회귀 가드만
+  bash ./bench --perf         benchmark_guard의 시간 예산 단언까지 (릴리스에서만)
+  bash ./bench --out perf.md  결과를 파일로도 남긴다
+
+환경변수:
+  ELM_MAGIC_BENCH_N   크기 목록(쉼표) — 인자보다 우선한다
+  ELM_MAGIC_PERF=1    시간 예산 단언을 켠다 (`--perf`와 같다)
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --quick) SIZES="100"; shift ;;
+    --guard) ONLY_GUARD=1; shift ;;
+    --perf)  PERF=1; shift ;;
+    --out)   OUT="${2:-}"; [[ -n "$OUT" ]] || { echo "error: --out 뒤에 파일 이름이 필요하다" >&2; exit 1; }; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    ''|*[!0-9]*) echo "error: 모르는 인자 '$1' (숫자 크기 또는 --quick/--guard/--perf/--out)" >&2; usage >&2; exit 1 ;;
+    *) SIZES="${SIZES:+$SIZES,}$1"; shift ;;
+  esac
+done
+
+SIZES="${ELM_MAGIC_BENCH_N:-${SIZES:-100,1000,3000}}"
+export ELM_MAGIC_BENCH_N="$SIZES"
+[[ "$PERF" == 1 ]] && export ELM_MAGIC_PERF=1
+
+# 결과를 한곳으로 모은다 (화면 + 선택적 파일). cargo의 진행 로그는 걷어낸다.
+NOISE='^(running [0-9]+ tests?|test result:|   Compiling|    Finished|     Running|    Blocking|warning: unused|$|ok$)'
+emit() { if [[ -n "$OUT" ]]; then tee -a "$OUT"; else cat; fi; }
+
+[[ -n "$OUT" ]] && : > "$OUT"
+
+log "빌드 (릴리스)"
+note "크기: $SIZES 행 · 결과 파일: ${OUT:-없음} · 시간 단언: $([[ "${ELM_MAGIC_PERF:-0}" == 1 ]] && echo on || echo off)"
+cargo build -p elm-magic-egui --release --quiet
+
+if [[ "$ONLY_GUARD" == 0 ]]; then
+  for t in "${TARGETS[@]}"; do
+    log "$t"
+    # `--test-threads=1`: 핫스팟 표가 섞이지 않게 한 줄씩 찍는다.
+    cargo test -p elm-magic-egui --test "$t" --release -- --nocapture --test-threads=1 2>&1 \
+      | grep -v -E "$NOISE" \
+      | emit
+  done
+fi
+
+log "$GUARD"
+cargo test -p elm-magic-egui --test "$GUARD" --release -- --nocapture 2>&1 \
+  | grep -v -E "$NOISE" \
+  | emit
+
+log "끝"
+note "해석: crates/elm-magic-egui/benchmark/README.md (§3 예측 채점, §6 병목 귀속, §8 최적화)"
+[[ -n "$OUT" ]] && note "결과: $OUT"
