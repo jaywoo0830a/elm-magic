@@ -37,6 +37,15 @@
 //! - `pointer-events: none`은 클릭 핸들러와 커서를 막는다(호버 색은 남는다).
 //! - `flex-shrink`는 코어가 값을 해석하지만 배분에는 아직 쓰지 않는다.
 //!
+//! ## 레이아웃 규칙 (0.8.1에서 고친 것)
+//!
+//! - **줄바꿈**: `wrap: true` 행의 컨테이너 자식은 intrinsic 크기를 미리 예약해
+//!   egui가 줄을 바꾸게 한다 (egui는 그리기 **전에** 알려진 크기로만 판단한다).
+//! - **flex item 폭**: 내용 크기 세로 컨테이너가 가로 부모(행) 안에 있으면 폭을
+//!   내용 크기로 고정한다 — `width: fill` 자식이 창 폭을 먹고 조상을 팽창시키지 않는다.
+//! - **텍스트 grow**: `flex-grow`가 텍스트 노드에도 적용된다(예산만큼 자리를 예약).
+//! - **align-self**: 가로 행에서는 행 높이(자식들의 최대 높이) 안에서 정렬한다.
+//!
 //! ## 스타일 리셋 (기본값 없음)
 //!
 //! 어댑터는 그리기 전에 egui의 기본 스타일을 **전부 리셋**한다 —
@@ -974,6 +983,111 @@ fn axis_max(style: &ResolvedStyle, horizontal: bool) -> Option<f32> {
     }
 }
 
+/// 한 축의 **선언** 크기 (`width`/`height`) — `fill`/`auto`도 선언으로 센다.
+fn declared_axis(style: &ResolvedStyle, horizontal: bool) -> Option<Len> {
+    if horizontal {
+        style.width
+    } else {
+        style.height
+    }
+}
+
+/// 텍스트 리프가 부모 주축의 남는 공간(`flex-grow`/`fill`)을 받았으면 그만큼 예약해 그린다.
+///
+/// 예전에는 텍스트만 늘어나지 않아 뒤 형제가 글자 바로 뒤에 붙었다(버그 4) —
+/// 컨테이너/버튼은 예산을 쓰는데 텍스트는 예산을 무시했다.
+/// `allocate_ui_with_layout`은 **실제 사용한 크기**만 차지하므로(요청을 넘겨도 줄어든다)
+/// `allocate_exact_size`로 주축 예산만큼 자리를 확보한 뒤 그 안에 그린다.
+fn text_with_budget<R>(
+    ui: &mut egui::Ui,
+    budget: Option<f32>,
+    text: &str,
+    style: &ResolvedStyle,
+    bold: bool,
+    f: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    let Some(b) = budget.filter(|b| b.is_finite() && *b > 0.0) else {
+        return f(ui);
+    };
+    let horizontal = ui.layout().main_dir().is_horizontal();
+    let cross = text_extent(ui, text, style, bold, !horizontal);
+    let size = if horizontal {
+        egui::vec2(b, cross)
+    } else {
+        egui::vec2(cross, b)
+    };
+    let layout = *ui.layout();
+    ui.allocate_ui_with_layout(size, layout, |ui| {
+        // egui는 **실제 사용한** 크기만 차지하므로, 예약한 주축 크기를 최소 크기로
+        // 못박아 뒤 형제가 늘어난 자리 뒤에 오게 한다.
+        ui.set_min_size(size);
+        f(ui)
+    })
+    .inner
+}
+
+/// **줄바꿈 행**의 컨테이너 자식을 그린다.
+///
+/// egui의 줄바꿈 판단은 그리기 **전에 알려진 크기**로만 이뤄진다 — 컨테이너 자식은
+/// 크기가 그릴 때 정해져서 한 줄로 뻗었다(버그 1b). intrinsic 크기를 미리 예약하면
+/// egui가 그 크기로 줄을 바꾼다.
+fn render_wrapped_child<'a>(
+    walk: &mut Walk<'a>,
+    ui: &mut egui::Ui,
+    child: &'a Element,
+    arena: &mut Arena,
+) {
+    if !matches!(
+        child,
+        Element::Row(_) | Element::Col(_) | Element::Fragment(_)
+    ) {
+        render_el(walk, ui, child, arena);
+        return;
+    }
+    let w = intrinsic_main(walk, ui, child, true).unwrap_or(0.0);
+    let h = intrinsic_main(walk, ui, child, false).unwrap_or(0.0);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::hover());
+    ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+        render_el(walk, ui, child, arena)
+    });
+}
+
+/// 자식 하나를 `align-self`(교차축)에 맞춰 그린다.
+///
+/// 가로 행에서는 **행 높이**(`row_cross`) 안에서 정렬해야 한다 — 남은 세로를 전부
+/// 먹으면 다음 행이 창 밖으로 밀린다(버그 6).
+fn render_aligned_child<'a>(
+    walk: &mut Walk<'a>,
+    ui: &mut egui::Ui,
+    child: &'a Element,
+    arena: &mut Arena,
+    horizontal: bool,
+    align: StyleAlign,
+    row_cross: f32,
+) {
+    let cross = align_of(Some(align));
+    if horizontal {
+        let avail = ui.available_rect_before_wrap();
+        let h = if row_cross > 0.0 {
+            row_cross
+        } else {
+            avail.height()
+        };
+        let max_rect = egui::Rect::from_min_size(avail.min, egui::vec2(avail.width(), h));
+        ui.scope_builder(
+            egui::UiBuilder::new()
+                .max_rect(max_rect)
+                .layout(egui::Layout::left_to_right(cross)),
+            |ui| render_el(walk, ui, child, arena),
+        );
+    } else {
+        ui.scope_builder(
+            egui::UiBuilder::new().layout(egui::Layout::top_down(cross)),
+            |ui| render_el(walk, ui, child, arena),
+        );
+    }
+}
+
 /// 위젯 최소 크기 (버튼) — `width`/`height`(또는 `min-*`)가 있을 때만.
 fn min_size(style: &ResolvedStyle) -> Option<egui::Vec2> {
     let w = match style.width {
@@ -1264,17 +1378,23 @@ fn draw_body_inner<'a>(
     };
     match el {
         Element::Text(TextEl { text, .. }) => {
-            let resp = text_widget(ui, text, &style, false);
+            let resp = text_with_budget(ui, walk.main_budget, text, &style, false, |ui| {
+                text_widget(ui, text, &style, false)
+            });
 
             drawn = Drawn::from(decorate(resp, &style));
         }
         Element::Strong(StrongEl { text, .. }) => {
-            let resp = text_widget(ui, text, &style, true);
+            let resp = text_with_budget(ui, walk.main_budget, text, &style, true, |ui| {
+                text_widget(ui, text, &style, true)
+            });
 
             drawn = Drawn::from(decorate(resp, &style));
         }
         Element::Banner(BannerEl { text, .. }) => {
-            let resp = text_widget(ui, text, &style, false);
+            let resp = text_with_budget(ui, walk.main_budget, text, &style, false, |ui| {
+                text_widget(ui, text, &style, false)
+            });
 
             drawn = Drawn::from(decorate(resp, &style));
         }
@@ -1426,7 +1546,9 @@ fn draw_body_inner<'a>(
             walk.pass.buttons.push((text.clone(), resp));
         }
         Element::Td(TdEl { text, .. }) => {
-            let resp = text_widget(ui, text, &style, false);
+            let resp = text_with_budget(ui, walk.main_budget, text, &style, false, |ui| {
+                text_widget(ui, text, &style, false)
+            });
 
             drawn = Drawn::from(decorate(resp, &style));
         }
@@ -1593,6 +1715,50 @@ fn container<'a>(
     } else {
         style.column_gap()
     };
+    // 부모 레이아웃의 주축 — 내가 부모 주축을 따라 놓인 "flex item"인지 판단한다.
+    let parent_horizontal = ui.layout().main_dir().is_horizontal();
+    // 줄바꿈 행: 컨테이너 자식은 intrinsic 크기를 미리 예약해야 egui가 줄을 바꾼다(버그 1b).
+    let wrap_children = horizontal && style.wrap == Some(true);
+    // 가로 행의 `align-self`는 **행 높이**를 기준으로 한다(버그 6).
+    let row_cross = if horizontal
+        && children
+            .iter()
+            .any(|c| resolve_style(walk, c).align_self.is_some())
+    {
+        children
+            .iter()
+            .filter_map(|c| intrinsic_main(walk, ui, c, false))
+            .fold(0.0f32, f32::max)
+    } else {
+        0.0
+    };
+    // 세로 컨테이너가 **가로 부모(행)** 안에 있으면 내 폭은 내용이 정한다 —
+    // 남은 폭을 자식에게 그대로 주면 자식의 `width: fill`이 컨테이너를 창까지
+    // 팽창시켜 형제를 밀어낸다(버그 2). 그래서 교차축(폭)을 내용 크기로 고정한다.
+    let cross_shrink = if !horizontal
+        && parent_horizontal
+        && declared_axis(style, true).is_none()
+        && walk.main_budget.is_none()
+    {
+        let mut content = 0.0f32;
+        for c in children {
+            if let Some(v) = intrinsic_main(walk, ui, c, true) {
+                content = content.max(v);
+            }
+        }
+        let floor = axis_min(style, true);
+        if content > 0.0 || floor.is_some() {
+            Some(clamp_axis(
+                content + padding_main(style, true) + border_main(style, true),
+                floor,
+                axis_max(style, true),
+            ))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
     let inner = frame_of(style, palette).show(ui, |ui| {
         // `overflow: hidden/scroll/auto` — 넘치는 자식을 컨테이너 안으로 자른다.
         if clips_children(style) {
@@ -1612,6 +1778,11 @@ fn container<'a>(
                 }
             }
             apply_size(ui, style, walk.main_budget);
+            if let Some(v) = cross_shrink {
+                // 교차축(폭)을 내용 크기로 고정 — 자식의 `fill`이 남은 공간이 아니라
+                // 이 컨테이너의 내용 폭을 기준으로 풀린다(버그 2).
+                ui.set_max_width(v);
+            }
             // 뒤 형제의 몫을 예약한 주축 예산 + 주축에 남는 공간(정렬용)
             let (budgets, extra) =
                 child_budgets(walk, ui, children, horizontal, gap.unwrap_or(0.0));
@@ -1644,21 +1815,13 @@ fn container<'a>(
                     let child_style = resolve_style(walk, child);
                     let saved = walk.main_budget;
                     walk.main_budget = budget;
-                    match child_style.align_self {
-                        // `align-self` — 이 자식만 교차축 정렬을 바꾼다. egui의 교차축
-                        // 정렬은 컨테이너 전역이라 자식 스코프로 우회한다.
-                        Some(a) => {
-                            let cross = align_of(Some(a));
-                            let layout = if horizontal {
-                                egui::Layout::left_to_right(cross).with_cross_justify(true)
-                            } else {
-                                egui::Layout::top_down(cross)
-                            };
-                            ui.scope_builder(egui::UiBuilder::new().layout(layout), |ui| {
-                                render_el(walk, ui, child, arena)
-                            });
-                        }
-                        None => render_el(walk, ui, child, arena),
+                    if wrap_children {
+                        // 줄바꿈 행: 컨테이너 자식의 크기를 미리 예약한다(버그 1b).
+                        render_wrapped_child(walk, ui, child, arena);
+                    } else if let Some(a) = child_style.align_self {
+                        render_aligned_child(walk, ui, child, arena, horizontal, a, row_cross);
+                    } else {
+                        render_el(walk, ui, child, arena);
                     }
                     walk.main_budget = saved;
                 }

@@ -7,14 +7,14 @@
 //! | # | 재현 | 관측 |
 //! |---|---|---|
 //! | 1a | `wrap: true` 행 + **버튼 직접** | 정상 — 3줄로 접힌다 |
-//! | 1b | `wrap: true` 행 + **중첩 Row 자식** | **무시(버그)** — 한 줄로 뻗어 창 밖(997 > 400) |
-//! | 1c | 한 단계 **더 깊은** 중첩 | **무시(버그)** — 1b와 같은 뿌리(자식 크기 미정) |
-//! | 2 | 내용 크기 부모 안의 `width: fill` | **버그** — 부모 폭을 먹어 형제가 창 밖으로 밀림 |
-//! | 2b | 같은 구조 + 부모에 `width` 선언 | 정상(우회) — 형제가 200 뒤(212)에서 시작 |
-//! | 2c | 같은 구조 + `fill`에 `max-width` | 정상(우회) — 상한이 팽창을 막는다 |
+//! | 1b | `wrap: true` 행 + **중첩 Row 자식** | **고침** — intrinsic 크기를 예약해 3줄(334.9 ≤ 400) |
+//! | 1c | 한 단계 **더 깊은** 중첩 | **고침** — 깊이와 무관하게 접힌다 |
+//! | 2 | 내용 크기 부모 안의 `width: fill` | **고침** — 교차축을 내용 폭으로 고정(형제가 212) |
+//! | 2b | 같은 구조 + 부모에 `width` 선언 | 정상 — 형제가 200 뒤(212)에서 시작 |
+//! | 2c | 같은 구조 + `fill`에 `max-width` | 정상 — 상한이 팽창을 막는다 |
 //! | 3 | `justify: end` | 정상 — 밀 공간이 있는 컨테이너(모달)에서 동작한다 |
 //!
-//! 단언은 **현재 동작**을 잠근다 — 1b/1c/2가 고쳐지면 이 파일이 먼저 깨진다.
+//! 1b/1c/2는 0.8.1에서 고쳤다 — 단언은 **고친 뒤 동작**을 잠근다.
 
 /// 재현 창 크기 — 모든 측정은 이 창 안에서의 상대값이다.
 const W: f32 = 400.0;
@@ -215,12 +215,12 @@ fn wrap_flat_row_wraps_within_the_window() {
     assert!(lines(&rows) > 1, "wrap: true인데 한 줄이다");
 }
 
-/// 재현 1b — 자식이 **중첩 컨테이너**면 `wrap`이 무시된다(elm-magic 버그).
+/// 재현 1b — 자식이 **중첩 컨테이너**여도 `wrap`이 동작한다.
 ///
-/// 1a(버튼 직접)는 접히는데, 같은 항목을 `Row` 그룹으로 감싸면 한 줄로 뻗는다.
-/// 셸의 `ToolBar`/`BarGroup`이 정확히 이 형태라서, 우리는 줄을 명시적으로 나눴다.
+/// egui의 줄바꿈 판단은 그리기 전에 알려진 크기로만 이뤄지므로, 어댑터가 컨테이너
+/// 자식의 intrinsic 크기를 미리 예약한다 — 셸의 `ToolBar`/`BarGroup`도 이제 접힌다.
 #[test]
-fn wrap_is_ignored_for_nested_container_children() {
+fn wrap_applies_to_nested_container_children() {
     let flat = buttons::<WrapFlat>(&WrapFlatProps::default());
     let nested = buttons::<WrapNested>(&WrapNestedProps::default());
     let flat_right = flat.iter().map(|(_, r)| r.right()).fold(0.0, f32::max);
@@ -236,21 +236,21 @@ fn wrap_is_ignored_for_nested_container_children() {
         "1a: wrap이 동작해야 한다 (lines={}, right={flat_right:.1})",
         lines(&flat)
     );
-    // 버그 — 중첩 컨테이너 자식에서는 접히지 않는다. elm-magic이 고치면 여기가 깨진다.
-    assert_eq!(
-        lines(&nested),
-        1,
-        "1b: 지금은 한 줄이다 — 고쳐졌다면 이 단언을 뒤집어라"
+    // 고침 — 중첩 컨테이너 자식에서도 접힌다.
+    assert!(
+        lines(&nested) > 1,
+        "1b: 여러 줄로 접혀야 한다 (lines={})",
+        lines(&nested)
     );
     assert!(
-        nested_right > W,
-        "1b: 버그라면 창 밖으로 나가야 하는데 {nested_right:.1} ≤ {W} — 고쳐졌다면 뒤집어라"
+        nested_right <= W,
+        "1b: 창 안({nested_right:.1} ≤ {W})이어야 한다"
     );
 }
 
-/// 재현 2 — 내용 크기 부모 안의 `width: fill`이 부모를 먹고 형제를 밀어낸다.
+/// 재현 2 — 내용 크기 부모 안의 `width: fill`도 부모 폭 안에 머문다.
 #[test]
-fn width_fill_inside_content_sized_parent_pushes_siblings_out() {
+fn width_fill_inside_content_parent_keeps_siblings_inside() {
     let rows = buttons::<FillInsideContentParent>(&FillInsideContentParentProps::default());
     let sibling = rect_of(&rows, "sibling");
     println!(
@@ -258,15 +258,15 @@ fn width_fill_inside_content_sized_parent_pushes_siblings_out() {
         sibling.left(),
         sibling.right()
     );
-    // 버그 — 패널 폭(200)이 지켜졌다면 형제는 x≈208에서 시작한다.
+    // 패널 폭(200)이 지켜지면 형제는 x≈212에서 시작하고 창 안에 머문다.
     assert!(
         sibling.left() > 200.0,
-        "실측 {:.1}: fill이 부모 폭을 먹지 않았다 — 고쳐졌다면 이 단언을 뒤집어라",
+        "패널 폭(200) 뒤에서 시작해야 한다 (실측 {:.1})",
         sibling.left()
     );
     assert!(
-        sibling.right() > W,
-        "형제가 창 밖({:.1} > {W}) — 조상이 팽창한다",
+        sibling.right() <= W,
+        "형제가 창 안({:.1} ≤ {W})이어야 한다",
         sibling.right()
     );
 }
@@ -302,33 +302,27 @@ fn justify_end_works_where_there_is_spare_width() {
     );
 }
 
-/// 재현 1c — 중첩이 한 단계 더 깊어도 `wrap`은 여전히 무시된다(1b와 같은 뿌리).
-///
-/// `wrap` 판단은 자식의 **알려진 크기**로만 이뤄지는데, 중첩 컨테이너는 크기가
-/// 그려질 때 정해져서 판단에서 빠진다 — 그래서 감싸는 깊이와 무관하게 한 줄이다.
+/// 재현 1c — 중첩이 한 단계 더 깊어도 `wrap`이 동작한다(1b와 같은 규칙).
 #[test]
-fn wrap_is_ignored_for_deeper_nesting_too() {
+fn wrap_applies_to_deeper_nesting_too() {
     let nested = buttons::<WrapNestedTwice>(&WrapNestedTwiceProps::default());
     let right = nested.iter().map(|(_, r)| r.right()).fold(0.0, f32::max);
     println!(
         "1c nested-twice: lines={} max_right={right:.1} (window {W})",
         lines(&nested)
     );
-    assert_eq!(
-        lines(&nested),
-        1,
-        "1c: 지금은 한 줄이다 — 고쳐졌다면 뒤집어라"
-    );
     assert!(
-        right > W,
-        "1c: 버그라면 창 밖으로 나가야 한다 ({right:.1} ≤ {W}) — 고쳐졌다면 뒤집어라"
+        lines(&nested) > 1,
+        "1c: 여러 줄로 접혀야 한다 (lines={})",
+        lines(&nested)
     );
+    assert!(right <= W, "1c: 창 안({right:.1} ≤ {W})이어야 한다");
 }
 
-/// 재현 2b — 부모에 `width`를 **선언**하면 `fill` 자식이 부모 폭에 갇힌다(우회).
+/// 재현 2b — 부모에 `width`를 **선언**하면 `fill` 자식이 그 폭에 갇힌다.
 ///
-/// 같은 구조에서 `.bug_panel`(폭 미선언)은 팽창하지만, 폭을 주면 예산이
-/// 그 폭으로 확정되어 형제가 창 안에 남는다 — 셸에서 쓸 수 있는 임시 대안이다.
+/// 2는 이제 교차축을 내용 폭으로 고정해 고쳐졌지만, 폭을 선언하는 쪽이 더 확실한
+/// 방법임을 함께 잠근다 — 형제가 200 뒤(212)에서 시작한다.
 #[test]
 fn width_fill_inside_declared_width_parent_stays_inside() {
     let rows = buttons::<FillInsideFixedParent>(&FillInsideFixedParentProps::default());

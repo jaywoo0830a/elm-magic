@@ -48,9 +48,20 @@
 
 ### Fixed
 
-- `crates/elm-magic-egui/tests/elm_wrap_tests.rs`가 `eframe`을 import해 컴파일이
-  안 되던 문제(이 크레이트의 의존성은 `egui`뿐). `egui::` 경로만 쓴다.
-- wrap/fill 재현 테스트의 이름과 헤더 표가 실제 관측(1a는 정상 wrap)과 어긋나던 것.
+- egui 어댑터 레이아웃 버그 4건 (`crates/elm-magic-egui/tests/elm_bugs_new.rs`,
+  `elm_wrap_tests.rs`가 회귀 센티넬):
+  - **1b/1c** `wrap: true` 행의 자식이 중첩 컨테이너일 때 줄바꿈이 무시되던 문제 —
+    egui의 줄바꿈 판단은 그리기 전에 알려진 크기로만 이뤄지므로, 컨테이너 자식의
+    intrinsic 크기를 미리 예약(`allocate_exact_size` + `scope_builder`)한다.
+  - **2** 내용 크기 세로 컨테이너가 가로 부모(행) 안에 있을 때 자식의 `width: fill`이
+    남은 창 폭을 먹어 조상이 팽창하던 문제 — 교차축(폭)을 내용 폭으로 고정한다.
+  - **4** `flex-grow: 1`이 텍스트 노드에서 무시되던 문제 — 예산만큼 자리를 예약해
+    그린다(egui는 "실제 사용한" 크기만 차지하므로 최소 크기를 못박는다).
+  - **6** 가로 행의 `align-self: center`가 남은 세로를 전부 먹어 다음 행이 밀리던
+    문제 — 행 높이(자식들의 최대 높이) 안에서 정렬한다.
+- `crates/elm-magic-egui/tests/elm_bugs_new.rs`·`elm_wrap_tests.rs`가 `eframe`을
+  import해 컴파일이 안 되던 문제(이 크레이트의 의존성은 `egui`뿐). `egui::` 경로만 쓴다.
+- wrap/fill 재현 테스트의 이름과 헤더 표가 실제 관측과 어긋나던 것.
 
 - `view!` 파라미터 타입 직렬화가 토큰별 `to_string()`+공백 결합이라
   `Vec<elm_magic::Element>`가 `Vec < elm_magic : : Element>`로,
