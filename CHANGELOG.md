@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## [0.8.6] — 2026-09-21
+
+### Changed
+
+- commit
+- commit
+- add examples
+
 ## [0.8.5] — 2026-09-20
 
 ### Changed

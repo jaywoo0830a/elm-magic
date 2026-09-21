@@ -1,6 +1,6 @@
 [package]
 name = "elm-magic-windows-reactor"
-version = "0.8.5"
+version = "0.8.6"
 edition = "2021"
 description = "windows-reactor (WinUI 3) adapter for elm-magic: renders elm-magic Element trees as Reactor components and controls, with no css! style layer."
 license = "MIT"
@@ -10,7 +10,7 @@ keywords = ["ui", "gui", "winui", "elm", "jsx"]
 categories = ["gui"]
 
 [dependencies]
-elm-magic = { path = "../..", version = "0.8.5" }
+elm-magic = { path = "../..", version = "0.8.6" }
 
 # windows-reactor는 WinUI 3(Windows App SDK) 위에 서므로 **Windows 전용**이다.
 # 타겟별 의존성으로 두어, 리눅스/macOS에서는 이 크레이트가 계획(plan) 층만
