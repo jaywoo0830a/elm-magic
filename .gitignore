@@ -1,1 +1,6 @@
 /target
+
+# 예제 전용 패키지(Windows/WinUI 3)의 산출물 — 루트 워크스페이스 밖이라 따로 둔다.
+# (`examples/windows-reactor/Cargo.toml` + `run-tests.ps1` 참고)
+/examples/windows-reactor/target
+/examples/windows-reactor/Cargo.lock

@@ -1,0 +1,146 @@
+# ── windows-reactor 예제 실행용 패키지 (Windows/WinUI 3 전용) ──────────────
+#
+# 이 디렉터리의 `*.rs`는 **독립 프로그램**이다(`fn main()` + WinUI 호스트).
+# 그래서 루트 크레이트의 `examples/`에 넣을 수 없다 — 의존성도 다르다
+# (`windows-reactor`). 대신 여기를 **독립 패키지**로 두고 각 파일을
+# `[[example]]`로 명시 등록한다(루트가 `tests/0.8/*`를 `[[test]]`로 등록한
+# 것과 같은 방식). 등록만 하면 `cargo`가 예제를 **테스트 하네스로도** 컴파일해
+# 주기 때문에 각 파일의 `#[cfg(test)] mod tests`가 실제로 실행된다.
+#
+#   Windows  :  cargo test --examples --features winui
+#               cargo run  --example 01_counter_minimal --features winui
+#   Linux/mac:  `required-features = ["winui"]`가 안 켜져 있어 **전부 건너뛴다**
+#               (warning + exit 0). 루트 `cargo test --workspace`와 CI는 그대로.
+#
+# 편의 스크립트: `run-tests.ps1` (같은 디렉터리, `-List`/`-Example`/`-Run`/`-Check`).
+#
+# `[workspace]`는 **의도적**이다: 없으면 Cargo가 이 패키지를 루트 크스페이스에
+# 속한다고 보고 "believes it's in a workspace when it's not" 경고를 낸다.
+#
+# 새 예제를 추가하면 아래 `[[example]]`도 함께 추가한다
+# (`run-tests.ps1 -List`가 빠진 항목을 경고한다).
+
+[package]
+name = "elm-magic-windows-reactor-examples"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "elm-magic windows-reactor 참고 예제 20개 (Windows/WinUI 3 전용)"
+license = "MIT"
+
+[workspace]
+
+[dependencies]
+elm-magic = { path = "../.." }
+elm-magic-windows-reactor = { path = "../../crates/elm-magic-windows-reactor" }
+
+[target.'cfg(windows)'.dependencies]
+# 어댑터와 같은 조건: Windows에서만 실제로 링크된다.
+windows-reactor = "0.100"
+
+[features]
+# 켜면 아래 예제들이 타겟이 된다. **코드가 붙는 기능은 아니다** — 게이트 전용이다.
+# (루트 워크스페이스에서는 기본이 꺼짐 = 예제는 여전히 "컴파일 대상 아님".)
+winui = []
+
+# ── 타겟 등록 (파일명 = 타겟명) ──────────────────────────────────────────
+
+[[example]]
+name = "01_counter_minimal"
+path = "01_counter_minimal.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "02_props"
+path = "02_props.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "03_multiple_views"
+path = "03_multiple_views.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "04_events_and_messages"
+path = "04_events_and_messages.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "05_input"
+path = "05_input.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "06_control_flow_tags"
+path = "06_control_flow_tags.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "07_lists_and_keys"
+path = "07_lists_and_keys.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "08_raw_winui"
+path = "08_raw_winui.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "09_async_effects"
+path = "09_async_effects.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "10_streams"
+path = "10_streams.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "11_host_state_and_callbacks"
+path = "11_host_state_and_callbacks.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "12_lifecycle_keys_clock"
+path = "12_lifecycle_keys_clock.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "13_store_global"
+path = "13_store_global.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "14_feedback_widgets"
+path = "14_feedback_widgets.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "15_modal_dialog"
+path = "15_modal_dialog.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "16_styling_without_css"
+path = "16_styling_without_css.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "17_tabs_and_headers"
+path = "17_tabs_and_headers.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "18_shell_layout"
+path = "18_shell_layout.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "19_error_loading_empty"
+path = "19_error_loading_empty.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "20_app_skeleton"
+path = "20_app_skeleton.rs"
+required-features = ["winui"]
