@@ -1,24 +1,25 @@
-//! gpui 예제 14 — `#[store]` 전역 상태 (화면 여러 개가 같은 값을 본다)
+//! gpui 예제 14 — `#[store]` 상태 (한 화면 트리 안에서 공유)
 //!
-//! **언제 쓰나**: 헤더/사이드바/상태바가 같은 값을 보거나, 여러 `ElmView`가 같은
-//! 세션 정보를 공유할 때. gpui의 엔티티 트리와 **별개로** 존재하는 진실이다.
+//! **언제 쓰나**: 헤더/사이드바/상태바가 같은 값을 볼 때. props로 내려보내는
+//! "prop drilling"을 없앤다.
 //!
 //! **규칙** (`tests/store.rs`)
 //! - `#[store] struct App { .. }`를 컴포넌트보다 위에 선언하고, 본문에서
 //!   `app.count`처럼 **소문자 접근자**로 읽고 쓴다.
 //! - `#[store]`는 필드 기본값을 못 쓴다(rustc가 구조체로 파싱) → `store_fn!`을 쓴다.
-//! - 전역 쓰기는 버전 카운터를 올려 프레임을 다시 돌린다. **어느 `ElmView`에서
-//!   썼든 그 엔티티만** 다시 그려지므로, 다른 화면도 갱신하려면 그 엔티티를 깨워야
-//!   한다(`cx.notify()` / `Entity::update`).
+//! - 전역 쓰기는 버전 카운터를 올려 **그 엔티티**를 다시 그린다.
+//!
+//! **중요 — "전역"의 범위**: store는 **아레나마다 하나**다(`Arena.stores`).
+//! 한 `ElmView`(= 한 `Ctx`) 안의 모든 컴포넌트가 공유하지만, **별개의
+//! `ElmView` 인스턴스끼리는 공유하지 않는다**. 그래서:
+//! - 공유가 필요하면 **하나의 루트 컴포넌트**(아래 `Root`)로 묶어 `ElmView<Root>` 하나만
+//!   붙인다 — 이 예제의 방식이다.
+//! - 화면을 여러 `ElmView`로 나눠야 한다면 공유 값은 **props로 내려보낸다**(예제 02).
 //!
 //! **베스트 패턴**
-//! - 전역에는 **진실만**(`dark: bool`, `user_id: u64`). 파생 값은 렌더에서 계산한다.
-//! - 화면 간 동기화가 필요하면 "누가 진실을 소유하는가"를 하나로 정한다 —
-//!   props(엔티티별 복사)와 전역(공유)을 섞으면 어긋나기 쉽다.
-//! - 전역 초기값이 필요하면 `store_fn!`의 기본값으로 표현한다(마운트 훅에서 대입하지 않는다).
-//!
-//! **주의**: 전역 상태는 **프로세스 전역**이다. 테스트 바이너리 안에서 같은
-//! `#[store]` 이름을 쓰면 테스트끼리 영향을 준다(격리 테스트가 따로 있다).
+//! - store에는 **진실만**(`dark: bool`, `user_id: u64`). 파생 값은 렌더에서 계산한다.
+//! - 초기값이 필요하면 `store_fn!`의 기본값으로 표현한다(마운트 훅에서 대입하지 않는다).
+//! - 테스트는 격리된다 — 테스트마다 새 아레나가 만들어지므로 store 이름이 겹쳐도 안전하다.
 
 use elm_magic::prelude::*;
 use elm_magic_gpui::ElmView;
@@ -64,12 +65,10 @@ elm_magic::view! {
 struct App2;
 impl Render for App2 {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // 두 ElmView가 같은 전역을 본다.
-        div()
-            .flex()
-            .flex_col()
-            .child(cx.new(ElmView::<Header>::new))
-            .child(cx.new(ElmView::<Body>::new))
+        // 공유가 필요하면 **루트 컴포넌트 하나**를 붙인다.
+        //   `ElmView<Header>`와 `ElmView<Body>`를 따로 붙이면 아레나가 둘이라
+        //   store도 둘이다 — 서로의 값을 보지 못한다.
+        div().flex().flex_col().child(cx.new(ElmView::<Root>::new))
     }
 }
 

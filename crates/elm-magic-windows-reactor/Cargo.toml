@@ -1,0 +1,25 @@
+[package]
+name = "elm-magic-windows-reactor"
+version = "0.8.5"
+edition = "2021"
+description = "windows-reactor (WinUI 3) adapter for elm-magic: renders elm-magic Element trees as Reactor components and controls, with no css! style layer."
+license = "MIT"
+readme = "../../README.md"
+repository = "https://github.com/jaywoo0830a/elm"
+keywords = ["ui", "gui", "winui", "elm", "jsx"]
+categories = ["gui"]
+
+[dependencies]
+elm-magic = { path = "../..", version = "0.8.5" }
+
+# windows-reactor는 WinUI 3(Windows App SDK) 위에 서므로 **Windows 전용**이다.
+# 타겟별 의존성으로 두어, 리눅스/macOS에서는 이 크레이트가 계획(plan) 층만
+# 컴파일한다 — 그래서 매핑 규칙은 어디서나 테스트되고, WinUI 층만 Windows에서
+# 빌드된다(`src/winui.rs`는 `cfg(windows)`로 게이트된다).
+[target.'cfg(windows)'.dependencies]
+windows-reactor = "0.100"
+
+[dev-dependencies]
+# 계획 층 테스트는 플랫폼 독립이라 리눅스 CI에서 그대로 돈다 (tests/plan.rs).
+# elm-magic 자체가 dev 의존성으로 필요한 것은 아니다 — 아래는 문서용 표기다.
+elm-magic = { path = "../..", version = "0.8.5" }

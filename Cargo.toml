@@ -3,6 +3,9 @@ members = [
     "crates/elm-magic-macros",
     "crates/elm-magic-egui",
     "crates/elm-magic-gpui",
+    # WinUI 3(windows-reactor) 어댑터 — Windows 전용 의존성을 타겟별로 두어,
+    # 다른 플랫폼에서는 계획(plan) 층과 구동 헬퍼만 컴파일·테스트된다.
+    "crates/elm-magic-windows-reactor",
 ]
 
 [package]
