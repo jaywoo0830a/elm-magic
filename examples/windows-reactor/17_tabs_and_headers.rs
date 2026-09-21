@@ -19,12 +19,16 @@
 //!
 //! **표**: elm의 `<Th>`/`<Td>`는 **텍스트**로 옮겨진다 — 2D 표가 필요하면 `<Raw>`로
 //! `Grid`(+ 행/열 정의)나 `ListView`를 쓰고, **정렬/선택 상태는 elm 슬롯**에 둔다.
+//!
+//! **`<Raw>`에서 컨테이너를 만들 때**: `children` / `slot` / `content`는 **트레이트
+//! 메서드**다 — `ChildrenControl` / `SlotsControl` / `ContentControl`을 `use`하지
+//! 않으면 `no method named ... found`가 난다(아래 `tabs`).
 
 use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{ElmInput, ElmView, RawSlot};
 use windows_reactor::{
-    App, ChildrenControl, Component, ComponentContext, SlotsControl, StackPanel, TabView,
-    TabViewItem, TabViewSlot, TextBlock, View, ViewContext,
+    App, ChildrenControl, Component, ComponentContext, ContentControl, SlotsControl, StackPanel,
+    TabView, TabViewItem, TabViewSlot, TextBlock, View, ViewContext,
 };
 
 elm_magic::view! {
@@ -99,8 +103,9 @@ mod tests {
 
         // 정적 Th와 Td는 텍스트(헤더는 굵게).
         assert!(pass.has_text("Age") && pass.has_text("alice") && pass.has_text("30"));
+        // 정적 Th는 굵은 텍스트(children[2] = 표 행, 그 둘째 자식 "Age").
         assert!(matches!(
-            node.children[1].children[1].kind,
+            node.children[2].children[1].kind,
             elm_magic_windows_reactor::PlanKind::Text { strong: true }
         ));
     }

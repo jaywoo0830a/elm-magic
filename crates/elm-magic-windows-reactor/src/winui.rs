@@ -108,6 +108,19 @@ impl<P> PartialEq for ElmInput<P> {
     }
 }
 
+/// 값이 아니라 **동일성**(가리키는 `Rc`의 주소)을 보여준다.
+///
+/// `P`에 `Debug`를 요구하지 않으므로 props 타입이 `Debug`를 파생했는지와 무관하게
+/// `assert_eq!`/`assert_ne!`/`{:?}`를 그대로 쓸 수 있다. 출력되는 주소가 같으면
+/// 같은 props이며 `input_changed`가 불리지 않는다는 뜻이다.
+impl<P> std::fmt::Debug for ElmInput<P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("ElmInput")
+            .field(&Rc::as_ptr(&self.props))
+            .finish()
+    }
+}
+
 /// elm-magic 컴포넌트(`C`)를 Reactor 컴포넌트로 그리는 뷰.
 ///
 /// `App::run_component::<ElmView<C>>(ElmInput::new(props))`로 창 하나를 띄운다.

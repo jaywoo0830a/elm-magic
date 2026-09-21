@@ -18,6 +18,11 @@
 //! - 값마다 **본문 전체가 다시 실행**된다 — 값이 많으면 화면이 무거워진다.
 //!   자주 오는 스트림은 작은 `ElmView`로 분리한다(예제 04).
 //! - 스트림은 UI 스레드에서 펌프되므로 **블로킹 이터레이터를 쓰면 UI가 멈춘다**.
+//! - `format!("{}", log)`처럼 **인자를 토큰으로 넘긴다**. Rust 인라인 캡처
+//!   (`format!("{log}")`)는 슬롯 이름을 찾지 못한다 — 매크로는 문자열 리터럴
+//!   **안**을 건드리지 않고 슬롯은 `__elm_state_log`로 풀리므로, 본문이 도는
+//!   클로저에 `log`라는 지역 변수가 없다(E0425). 화면 텍스트의 `"{log}"`는
+//!   요소 자리라서 매크로가 직접 보간하므로 그대로 쓸 수 있다.
 
 use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{drive, ElmInput, ElmView};
@@ -31,7 +36,7 @@ elm_magic::view! {
     fn Upload(pct = 0, log = String::new()) {
         <Col>
             <Button on_click={
-                upload_progress() -> pct { log = format!("{log}[{pct}]") }
+                upload_progress() -> pct { log = format!("{}[{}]", log, pct) }
             }>"upload"</Button>
             "progress: {pct}%"
             <Progress value={pct as f64 / 100.0} />

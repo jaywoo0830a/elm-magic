@@ -319,6 +319,33 @@ fn stmt_position(toks: &[TokenTree], after: usize) -> bool {
     }
 }
 
+/// `move` 클로저 **앞에서** 콜백 prop을 복제해 둔다 (쓴 콜백이 없으면 빈 문자열).
+///
+/// 콜백 prop(`fn(T)` 매개변수)은 `__elm_cb_<name>` 지역으로 미리 묶이고, 호출부는
+/// `__elm_cb_<name>.clone()`을 쓴다. 그런데 핸들러는 `move` 클로저라서 **첫 호출이
+/// 그 지역을 클로저 안으로 옮긴다** — 한 렌더에서 같은 콜백을 두 번 이상 부르면
+/// (예: 사이드바 버튼 3개) 두 번째 클로저가 이미 옮겨진 값을 쓰려다
+/// `E0382: use of moved value`로 깨진다. 그래서 클로저마다 자기 복제본을 갖게 한다
+/// (`Callback`은 `Rc` 기반이라 복제가 싸다).
+///
+/// `body`는 **이미 전개된** 본문 문자열이라, 호출부가 남긴
+/// `__elm_cb_<name>.clone()` 흔적으로 쓰임을 판정한다. 이름 순서는 고정한다 —
+/// 매크로 출력이 렌더마다 같아야 한다.
+fn callback_clones(body: &str, env: &Env) -> String {
+    let mut names: Vec<&String> = env.callbacks.iter().collect();
+    names.sort();
+    let mut out = String::new();
+    for cb in names {
+        if body.contains(&format!("__elm_cb_{}.clone()", cb)) {
+            out.push_str(&format!(
+                "let __elm_cb_{c} = __elm_cb_{c}.clone(); ",
+                c = cb
+            ));
+        }
+    }
+    out
+}
+
 /// 슬롯 읽기 식.
 fn read_expr(name: &str, arena: &str) -> String {
     format!("(__elm_state_{}.get({}).clone())", name, arena)
@@ -536,8 +563,9 @@ fn transform_children(toks: &[TokenTree], env: &Env, sep: char) -> TokenStream {
                         let body_ts = transform_event(&body, env, None, Level::Stmt).to_string();
                         pieces.push((
                             parse_ts(&format!(
-                                "__elm_ctx.on_unmount(::std::rc::Rc::new(move |_elm_a: &mut ::elm_magic::Arena| {{ {} }}));",
-                                body_ts
+                                "__elm_ctx.on_unmount(::std::rc::Rc::new({{ {clones}move |_elm_a: &mut ::elm_magic::Arena| {{ {} }} }}));",
+                                body_ts,
+                                clones = callback_clones(&body_ts, env)
                             )),
                             false,
                         ));
@@ -554,8 +582,9 @@ fn transform_children(toks: &[TokenTree], env: &Env, sep: char) -> TokenStream {
                         let body_ts = transform_event(&body, env, None, Level::Stmt).to_string();
                         pieces.push((
                             parse_ts(&format!(
-                                "__elm_ctx.on_net_change(::std::rc::Rc::new(move |_elm_a: &mut ::elm_magic::Arena| {{ {} }}));",
-                                body_ts
+                                "__elm_ctx.on_net_change(::std::rc::Rc::new({{ {clones}move |_elm_a: &mut ::elm_magic::Arena| {{ {} }} }}));",
+                                body_ts,
+                                clones = callback_clones(&body_ts, env)
                             )),
                             false,
                         ));
@@ -577,8 +606,10 @@ fn transform_children(toks: &[TokenTree], env: &Env, sep: char) -> TokenStream {
                         let body_ts = transform_event(&body, env, None, Level::Stmt).to_string();
                         pieces.push((
                             parse_ts(&format!(
-                                "__elm_ctx.on_event(&::core::stringify!({}).replace(' ', \"\"), ::std::rc::Rc::new(move |_elm_a: &mut ::elm_magic::Arena| {{ {} }}));",
-                                ev_src, body_ts
+                                "__elm_ctx.on_event(&::core::stringify!({}).replace(' ', \"\"), ::std::rc::Rc::new({{ {clones}move |_elm_a: &mut ::elm_magic::Arena| {{ {} }} }}));",
+                                ev_src,
+                                body_ts,
+                                clones = callback_clones(&body_ts, env)
                             )),
                             false,
                         ));
@@ -607,9 +638,10 @@ fn transform_children(toks: &[TokenTree], env: &Env, sep: char) -> TokenStream {
                                     transform_event(&body, env, None, Level::Stmt).to_string();
                                 pieces.push((
                                     parse_ts(&format!(
-                                        "__elm_ctx.on_navigate(::std::rc::Rc::new(move |_elm_a: &mut ::elm_magic::Arena, __elm_nav: &dyn ::core::any::Any| {{ let {v} = ::elm_magic::nav_take(__elm_nav); {} }}));",
+                                        "__elm_ctx.on_navigate(::std::rc::Rc::new({{ {clones}move |_elm_a: &mut ::elm_magic::Arena, __elm_nav: &dyn ::core::any::Any| {{ let {v} = ::elm_magic::nav_take(__elm_nav); {} }} }}));",
                                         body_ts,
-                                        v = var.to_string()
+                                        v = var.to_string(),
+                                        clones = callback_clones(&body_ts, env)
                                     )),
                                     false,
                                 ));
@@ -691,8 +723,10 @@ fn transform_children(toks: &[TokenTree], env: &Env, sep: char) -> TokenStream {
                         pieces.push((
                             parse_ts(&format!(
                                 "__elm_ctx.keys.push((::std::convert::Into::into({}), \
-                                 ::std::rc::Rc::new(move |_elm_a: &mut ::elm_magic::Arena| {{ {} }})));",
-                                key_ts, body_ts
+                                 ::std::rc::Rc::new({{ {clones}move |_elm_a: &mut ::elm_magic::Arena| {{ {} }} }})));",
+                                key_ts,
+                                body_ts,
+                                clones = callback_clones(&body_ts, env)
                             )),
                             false,
                         ));
@@ -1074,15 +1108,17 @@ fn emit_stream(
     let body_ts = transform_event(&body_toks, env, None, Level::Stmt).to_string();
     let cont = if env.states.contains(slot) {
         format!(
-            "move |_elm_a: &mut ::elm_magic::Arena, __elm_v| {{ __elm_state_{t}.set(_elm_a, __elm_v); {body} }}",
+            "{{ {clones}move |_elm_a: &mut ::elm_magic::Arena, __elm_v| {{ __elm_state_{t}.set(_elm_a, __elm_v); {body} }} }}",
             t = slot,
-            body = body_ts
+            body = body_ts,
+            clones = callback_clones(&body_ts, env)
         )
     } else {
         format!(
-            "move |_elm_a: &mut ::elm_magic::Arena, __elm_v| {{ let {t} = __elm_v; {body} }}",
+            "{{ {clones}move |_elm_a: &mut ::elm_magic::Arena, __elm_v| {{ let {t} = __elm_v; {body} }} }}",
             t = slot,
-            body = body_ts
+            body = body_ts,
+            clones = callback_clones(&body_ts, env)
         )
     };
 
@@ -2314,7 +2350,12 @@ fn class_tokens(attrs: &[(String, AttrVal)]) -> String {
     }
 }
 
-fn event_closure(attrs: &[(String, AttrVal)], key: &str, value_ty: Option<&str>) -> String {
+fn event_closure(
+    attrs: &[(String, AttrVal)],
+    key: &str,
+    value_ty: Option<&str>,
+    env: &Env,
+) -> String {
     let body = attrs.iter().find_map(|(k, v)| match (k, v) {
         (k, AttrVal::Expr(e)) if k == key => Some(e.to_string()),
         _ => None,
@@ -2326,12 +2367,24 @@ fn event_closure(attrs: &[(String, AttrVal)], key: &str, value_ty: Option<&str>)
     };
     let sig = match value_ty {
         Some(t) => format!(
-            "::std::option::Option::Some(::std::rc::Rc::new(move |_elm_a: &mut ::elm_magic::Arena, _elm_v: {}| {{ ",
-            t
+            "::std::option::Option::Some(::std::rc::Rc::new({{ {clones}move |_elm_a: &mut ::elm_magic::Arena, _elm_v: {}| {{ ",
+            t,
+            clones = callback_clones(&body, env)
         ),
-        None => "::std::option::Option::Some(::std::rc::Rc::new(move |_elm_a: &mut ::elm_magic::Arena| { ".to_string(),
+        None => format!(
+            "::std::option::Option::Some(::std::rc::Rc::new({{ {clones}move |_elm_a: &mut ::elm_magic::Arena| {{ ",
+            clones = callback_clones(&body, env)
+        ),
     };
-    format!("{}{}}}))", sig, body)
+    // 클로저 본문(`{ … }`) + 앞의 복제 블록(`{ … }`)까지 닫는다.
+    // (`format!` 문자열에서 `}}`를 세는 실수를 피하려고 직접 붙인다.)
+    let mut out = String::new();
+    out.push_str(&sig);
+    out.push_str(&body);
+    out.push('}');
+    out.push('}');
+    out.push_str("))");
+    out
 }
 
 /// Text/Button `text` value from children pieces (literals + brace exprs).
@@ -2402,7 +2455,7 @@ fn emit_element(
                 tag,
                 class_tokens(attrs),
                 children_ts,
-                event_closure(attrs, "on_click", None)
+                event_closure(attrs, "on_click", None, env)
             )
         }
         "Button" => {
@@ -2415,7 +2468,7 @@ fn emit_element(
                 text,
                 class_tokens(attrs),
                 attr_expr(attrs, "disabled").unwrap_or_else(|| "false".to_string()),
-                event_closure(attrs, "on_click", None),
+                event_closure(attrs, "on_click", None, env),
             )
         }
         "Input" => {
@@ -2423,8 +2476,8 @@ fn emit_element(
                 "::elm_magic::Element::Input(::elm_magic::InputEl {{ value: {}, class: {}, on_change: {}, on_enter: {} }})",
                 attr_string(attrs, "value", "::std::string::String::new()"),
                 class_tokens(attrs),
-                event_closure(attrs, "on_change", Some("::std::string::String")),
-                event_closure(attrs, "on_enter", Some("::std::string::String")),
+                event_closure(attrs, "on_change", Some("::std::string::String"), env),
+                event_closure(attrs, "on_enter", Some("::std::string::String"), env),
             )
         }
         "TextArea" => {
@@ -2432,8 +2485,8 @@ fn emit_element(
                 "::elm_magic::Element::TextArea(::elm_magic::TextAreaEl {{ value: {}, class: {}, on_change: {}, on_enter: {} }})",
                 attr_string(attrs, "value", "::std::string::String::new()"),
                 class_tokens(attrs),
-                event_closure(attrs, "on_change", Some("::std::string::String")),
-                event_closure(attrs, "on_enter", Some("::std::string::String")),
+                event_closure(attrs, "on_change", Some("::std::string::String"), env),
+                event_closure(attrs, "on_enter", Some("::std::string::String"), env),
             )
         }
         "Check" => {
@@ -2446,7 +2499,7 @@ fn emit_element(
                 attr_expr(attrs, "checked").unwrap_or_else(|| "false".to_string()),
                 label,
                 class_tokens(attrs),
-                event_closure(attrs, "on_change", Some("bool")),
+                event_closure(attrs, "on_change", Some("bool"), env),
             )
         }
         "Strong" => {
@@ -2482,7 +2535,7 @@ fn emit_element(
                 text,
                 attr_expr(attrs, "active").unwrap_or_else(|| "false".to_string()),
                 class_tokens(attrs),
-                event_closure(attrs, "on_click", None),
+                event_closure(attrs, "on_click", None, env),
             )
         }
         "Th" => {
@@ -2494,7 +2547,7 @@ fn emit_element(
                 "::elm_magic::Element::Th(::elm_magic::ThEl {{ text: {}, class: {}, on_click: {} }})",
                 text,
                 class_tokens(attrs),
-                event_closure(attrs, "on_click", None),
+                event_closure(attrs, "on_click", None, env),
             )
         }
         "Td" => {
@@ -2527,7 +2580,7 @@ fn emit_element(
                 "::elm_magic::Element::Modal(::elm_magic::ModalEl {{ title: {}, class: {}, on_close: {}, children: {} }})",
                 attr_string(attrs, "title", "::std::string::String::new()"),
                 class_tokens(attrs),
-                event_closure(attrs, "on_close", None),
+                event_closure(attrs, "on_close", None, env),
                 children_ts
             )
         }
@@ -2633,9 +2686,14 @@ fn emit_component(
             AttrVal::Flag => continue,
             AttrVal::Expr(e) if k.starts_with("on_") => {
                 // 콜백 prop — `on_select={selected = Some(_)}` (사양서 3.1)
+                // 부모의 콜백 prop을 그대로 넘기는 경우(`on_select={on_pick(_)}`)도
+                // 클로저마다 복제해 둔다 — 형제가 여럿이면 첫 하나가 옮겨 버린다.
+                let body = e.to_string();
                 fields.push_str(&format!(
-                    "{}: ::core::option::Option::Some(::elm_magic::Callback::new(move |_elm_a: &mut ::elm_magic::Arena, _elm_v| {{ {} }})), ",
-                    k, e
+                    "{}: ::core::option::Option::Some(::elm_magic::Callback::new({{ {clones}move |_elm_a: &mut ::elm_magic::Arena, _elm_v| {{ {} }} }})), ",
+                    k,
+                    body,
+                    clones = callback_clones(&body, env)
                 ));
             }
             AttrVal::Lit(s) => fields.push_str(&format!(

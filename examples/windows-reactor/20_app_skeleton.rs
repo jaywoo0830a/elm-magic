@@ -5,13 +5,15 @@
 //! **순서 (중요)**
 //! 1. **스타일 설치가 없다** — 이 어댑터는 스타일 계층을 지원하지 않는다.
 //!    테마/색은 WinUI 리소스(`ThemeBrush`)가 담당한다(예제 16).
-//! 2. `App::run_component::<Shell>(())` → `Shell::view`가 elm 화면을 붙인다.
+//! 2. `windows_reactor::App::run_component::<Shell>(())` → `Shell::view`가 elm 화면을 붙인다.
+//!    (`#[store] struct App`이 이 모듈에 `struct App`을 만들므로 Reactor의 `App`은
+//!    import 하지 않고 경로로 쓴다 — `use windows_reactor::App`은 E0255다.)
 //! 3. 창 제목/크기는 **호스트 컴포넌트의 `view()`**에서 선언한다
 //!    (`ViewContext::window_title`, `ViewContext::on_window_size`) — elm은 플랫폼을 모른다.
 //! 4. **앱이 구동해야 하는 것**: due 효과(`drive::run`), 스트림(`drive::pump_streams`),
 //!    시계(`drive::run_at`), 단축키(`drive::dispatch_key`).
 //!    `ElmView::update`가 효과/스트림을 자동으로 구동한다(예제 09, 10).
-//! 5. 여러 창이 필요하면 `App::run_windows([..])` — 각 항목이 **독립 창**이다.
+//! 5. 여러 창이 필요하면 `windows_reactor::App::run_windows([..])` — 각 항목이 **독립 창**이다.
 //!
 //! **베스트 패턴**
 //! - 셸(창/제목/전역)은 **호스트 컴포넌트** 하나로, 화면 내용은 **elm 루트 컴포넌트**
@@ -24,7 +26,7 @@
 
 use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{drive, ElmInput, ElmView};
-use windows_reactor::{App, Component, ComponentContext, View, ViewContext};
+use windows_reactor::{Component, ComponentContext, View, ViewContext};
 
 #[store]
 struct App {
@@ -102,10 +104,10 @@ fn tick(view: &ElmView<Root>, started: std::time::Instant) -> bool {
 
 fn main() {
     // ① 창 하나.
-    App::run_component::<Shell>(()).expect("Reactor 실행 실패");
+    windows_reactor::App::run_component::<Shell>(()).expect("Reactor 실행 실패");
 
     // ② 창 여러 개 — 각 항목이 독립 창이고, 각자 자기 ElmView/아레나를 갖는다.
-    // App::run_windows([
+    // windows_reactor::App::run_windows([
     //     View::component::<ElmView<Root>>(ElmInput::new(RootProps::default())),
     //     View::component::<ElmView<Counter>>(ElmInput::new(CounterProps::default())),
     // ])
@@ -136,7 +138,11 @@ mod tests {
 
     #[test]
     fn store_state_is_shared_inside_the_root() {
-        let mut app = elm_magic::mount!(Root);
+        // `Root(online: bool)`는 필수 prop이라 `mount!`로는 마운트할 수 없다.
+        let mut app = elm_magic::mount_with::<Root>(RootProps {
+            online: Some(true),
+            ..Default::default()
+        });
         app.click("클릭");
         app.assert_text("clicks: 1");
         app.click("테마"); // store 갱신 (화면에는 표시되지 않지만 상태는 바뀐다)
@@ -145,12 +151,17 @@ mod tests {
 
     #[test]
     fn shortcut_resets_the_counter() {
-        let mut ctx = Ctx::new();
-        let props = RootProps::default();
-        let _ = elm_magic::frame::<Root>(&mut ctx, &props);
+        let mut app = elm_magic::mount_with::<Root>(RootProps {
+            online: Some(true),
+            ..Default::default()
+        });
+        app.click("클릭");
+        app.click("클릭");
+        app.assert_text("clicks: 2");
 
-        assert!(drive::dispatch_key(&mut ctx, "Ctrl+R"));
-        let tree = elm_magic::frame::<Root>(&mut ctx, &props);
-        assert!(plan(&tree).1.has_text("clicks: 0"));
+        // 호스트가 키 이벤트마다 부르는 것과 같은 경로(`drive::dispatch_key`)로
+        // `on_key("Ctrl+R")` 핸들러가 돈다.
+        app.press_key("Ctrl+R");
+        app.assert_text("clicks: 0");
     }
 }

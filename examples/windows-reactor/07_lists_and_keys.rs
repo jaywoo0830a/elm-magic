@@ -126,7 +126,28 @@ mod tests {
     #[test]
     fn removal_drops_the_slot() {
         let mut app = list();
-        app.click("pop");
-        assert!(!app.text().contains('a'), "삭제된 행이 남았다");
+        app.click("pop"); // `items.remove(0)` — 첫 행(id=1, "a")이 사라진다
+
+        // `text()`는 텍스트 노드를 한 줄에 하나씩 돌려준다 — 삭제된 행의 "a"는
+        // 줄로 남지 않는다. (문자 'a' 검색은 "reversed: false"에 걸린다.)
+        assert!(
+            !app.text().lines().any(|line| line == "a"),
+            "삭제된 행이 남았다: {:?}",
+            app.text()
+        );
+
+        // 키 슬롯도 함께 버려진다 — 남은 행 하나짜리 목록과 슬롯 수가 같아야 한다.
+        let one = elm_magic::mount_with::<List>(ListProps {
+            items: Some(vec![Item {
+                id: 2,
+                text: "b".to_string(),
+            }]),
+            ..Default::default()
+        });
+        assert_eq!(
+            app.keyed_slot_count(),
+            one.keyed_slot_count(),
+            "삭제된 키의 슬롯이 남았다"
+        );
     }
 }

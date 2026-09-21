@@ -26,7 +26,9 @@
 
 use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{ElmInput, ElmView};
-use windows_reactor::{App, Component, ComponentContext, View, ViewContext};
+// store 이름(`App`)과 Reactor의 `App`이 겹친다 — store가 이 모듈에 `struct App`을
+// 만들므로 `use windows_reactor::App`과 충돌한다(E0255). 그래서 경로로 쓴다.
+use windows_reactor::{Component, ComponentContext, View, ViewContext};
 
 #[store]
 struct App {
@@ -85,7 +87,7 @@ impl Component for Shell {
 }
 
 fn main() {
-    App::run_component::<Shell>(()).expect("Reactor 실행 실패");
+    windows_reactor::App::run_component::<Shell>(()).expect("Reactor 실행 실패");
 }
 
 #[cfg(test)]

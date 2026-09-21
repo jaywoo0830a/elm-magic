@@ -20,6 +20,11 @@
 //!
 //! **주의**: `margin` 같은 CSS 개념은 이 백엔드에 없다 — 여백은 `Border::padding`/
 //! `Thickness`, 간격은 `StackPanel::spacing`이 담당한다.
+//!
+//! **자식은 슬롯을 직접 쓰지 않는다**: `on_click={tab = 1}`을 자식 안에서 쓰면
+//! 그때부터 그 슬롯은 **자식의 상태**가 되어 props를 따라가지 않는다(`slot_prop`의
+//! prop 동기화는 자식이 아직 안 쓴 동안만 유효하다). 공유 값은 **셸이 소유**하고
+//! 자식에게는 props + 콜백(`on_select: fn(i32)`)을 내려보낸다 — 아래 `Sidebar`.
 
 use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{ElmInput, ElmView, RawSlot};
@@ -29,11 +34,11 @@ use windows_reactor::{
 };
 
 elm_magic::view! {
-    fn Sidebar(tab = 0) {
+    fn Sidebar(tab = 0, on_select: fn(i32)) {
         <Col>
-            <Button on_click={tab = 0}>"대시보드"</Button>
-            <Button on_click={tab = 1}>"설정"</Button>
-            <Button on_click={tab = 2}>"로그"</Button>
+            <Button on_click={on_select(0)}>"대시보드"</Button>
+            <Button on_click={on_select(1)}>"설정"</Button>
+            <Button on_click={on_select(2)}>"로그"</Button>
             "tab: {tab}"
         </Col>
     }
@@ -62,7 +67,7 @@ elm_magic::view! {
             }</Raw>
 
             <Row>
-                <Sidebar tab={tab} />
+                <Sidebar tab={tab} on_select={tab = _} />
                 <Content tab={tab} />
             </Row>
 

@@ -99,6 +99,41 @@ fn callback_can_use_the_incoming_value() {
     app.assert_text("last: #3");
 }
 
+// 같은 콜백 prop을 **한 렌더에서 두 번 이상** 부를 수 있어야 한다.
+// 핸들러는 `move` 클로저라, 복제 없이 그대로 캡처하면 첫 핸들러가 콜백을 옮겨
+// 두 번째 핸들러가 E0382("use of moved value")로 깨졌다.
+elm_magic::view! {
+    fn TwoButtons(on_pick: fn(i32)) {
+        <Row>
+            <Button on_click={on_pick(1)}>"one"</Button>
+            <Button on_click={on_pick(2)}>"two"</Button>
+        </Row>
+    }
+}
+
+#[test]
+fn callback_prop_can_be_called_from_several_handlers() {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    let sum = Rc::new(Cell::new(0));
+    let seen = Rc::clone(&sum);
+    let mut app = elm_magic::mount_with::<TwoButtons>(TwoButtonsProps {
+        on_pick: Some(Callback::new(move |_arena, value: i32| {
+            seen.set(seen.get() + value);
+        })),
+        ..Default::default()
+    });
+
+    app.click("one");
+    app.click("two");
+    assert_eq!(
+        sum.get(),
+        3,
+        "두 핸들러가 같은 콜백 prop을 부를 수 있어야 한다"
+    );
+}
+
 // 콜백 prop에 기본값 없이도 잘 컴파일되는지 (prop 누락 시 panic 메시지)
 #[test]
 fn required_prop_missing_panics_with_message() {

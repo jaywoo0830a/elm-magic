@@ -4,3 +4,5 @@
 # (`examples/windows-reactor/Cargo.toml` + `run-tests.ps1` 참고)
 /examples/windows-reactor/target
 /examples/windows-reactor/Cargo.lock
+
+*.log

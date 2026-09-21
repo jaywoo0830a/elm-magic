@@ -118,9 +118,10 @@ mod tests {
         let (_, empty) = with(Phase::Empty);
         assert!(empty.has_text("항목이 없습니다"));
 
-        let (node, failed) = with(Phase::Failed("timeout".to_string()));
+        let (_, failed) = with(Phase::Failed("timeout".to_string()));
         assert_eq!(failed.count("InfoBar"), 1);
-        assert!(node.children.iter().any(|c| c.text == "timeout"));
+        // InfoBar 본문은 Banner 노드의 text로 실린다 (`Pass::texts`).
+        assert!(failed.has_text("timeout"), "에러 본문이 계획에 실린다");
     }
 
     #[test]
