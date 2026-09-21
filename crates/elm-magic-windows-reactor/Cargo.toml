@@ -18,8 +18,3 @@ elm-magic = { path = "../..", version = "0.8.5" }
 # 빌드된다(`src/winui.rs`는 `cfg(windows)`로 게이트된다).
 [target.'cfg(windows)'.dependencies]
 windows-reactor = "0.100"
-
-[dev-dependencies]
-# 계획 층 테스트는 플랫폼 독립이라 리눅스 CI에서 그대로 돈다 (tests/plan.rs).
-# elm-magic 자체가 dev 의존성으로 필요한 것은 아니다 — 아래는 문서용 표기다.
-elm-magic = { path = "../..", version = "0.8.5" }

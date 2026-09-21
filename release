@@ -6,13 +6,13 @@
 #
 # RELEASING.md 의 수동 절차를 그대로 자동화한다:
 #
-#   1. 버전 범프   — Cargo.toml 4개 + path 의존성 3곳 + Cargo.lock
+#   1. 버전 범프   — Cargo.toml 5개 + path 의존성 5곳 + Cargo.lock
 #   2. 체인지로그  — CHANGELOG.md 에 새 버전 절 추가 (본문은 --notes / --notes-file,
 #                    없으면 마지막 태그 이후 커밋 제목으로 자동 생성)
-#   3. 로컬 검증   — cargo fmt --check / cargo test ×2 / cargo package ×4
+#   3. 로컬 검증   — cargo fmt --check / cargo test ×2 / cargo package ×5
 #   4. 커밋 & 태그 — "chore: release vX.Y.Z" / vX.Y.Z
 #   5. 푸시        — git push origin HEAD --tags
-#   6. 배포        — elm-magic-macros → elm-magic → elm-magic-egui/gpui,
+#   6. 배포        — elm-magic-macros → elm-magic → elm-magic-egui/gpui/windows-reactor,
 #                    crates.io 색인 전파를 기다리고, 이미 배포된 버전은 건너뛴다.
 #
 # crates.io 배포는 되돌릴 수 없으므로, 대화형 실행에서는 시작 전에 한 번 확인한다.
@@ -23,8 +23,8 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
 
-# 배포 순서 — 의존성 방향: macros → elm-magic → egui / gpui
-CRATES=(elm-magic-macros elm-magic elm-magic-egui elm-magic-gpui)
+# 배포 순서 — 의존성 방향: macros → elm-magic → egui / gpui / windows-reactor
+CRATES=(elm-magic-macros elm-magic elm-magic-egui elm-magic-gpui elm-magic-windows-reactor)
 # 색인 전파 대기 최대 시간(초)
 PUBLISH_WAIT="${PUBLISH_WAIT:-180}"
 
@@ -167,7 +167,8 @@ update_lock() {
   awk -v ver="$VERSION" '
     /^\[\[package\]\]$/ { upgrade = 0 }
     /^name = "elm-magic"$/      || /^name = "elm-magic-macros"$/ ||
-    /^name = "elm-magic-egui"$/ || /^name = "elm-magic-gpui"$/ { upgrade = 1 }
+    /^name = "elm-magic-egui"$/ || /^name = "elm-magic-gpui"$/ ||
+    /^name = "elm-magic-windows-reactor"$/ { upgrade = 1 }
     upgrade && /^version = / { print "version = \"" ver "\""; upgrade = 0; next }
     { print }
   ' Cargo.lock > "$tmp"
@@ -179,7 +180,7 @@ verify_versions() {
   grep -qE "^version = \"$VERSION\"$" Cargo.toml || bad=1
   grep -qF "elm-magic-macros = { path = \"crates/elm-magic-macros\", version = \"$VERSION\" }" Cargo.toml || bad=1
   grep -qE "^version = \"$VERSION\"$" crates/elm-magic-macros/Cargo.toml || bad=1
-  for c in elm-magic-egui elm-magic-gpui; do
+  for c in elm-magic-egui elm-magic-gpui elm-magic-windows-reactor; do
     grep -qE "^version = \"$VERSION\"$" "crates/$c/Cargo.toml" || bad=1
     grep -qF "elm-magic = { path = \"../..\", version = \"$VERSION\" }" "crates/$c/Cargo.toml" || bad=1
   done
@@ -196,7 +197,7 @@ bump_versions() {
     "s|(elm-magic-macros = \{ path = \"crates/elm-magic-macros\", version = \")[^\"]*(\")|\1$VERSION\2|" Cargo.toml
   run sed -i -E "s|^version = \"[^\"]*\"$|version = \"$VERSION\"|" crates/elm-magic-macros/Cargo.toml
   local c
-  for c in elm-magic-egui elm-magic-gpui; do
+  for c in elm-magic-egui elm-magic-gpui elm-magic-windows-reactor; do
     run sed -i -E "s|^version = \"[^\"]*\"$|version = \"$VERSION\"|" "crates/$c/Cargo.toml"
     run sed -i -E \
       "s|(elm-magic = \{ path = \"\.\./\.\.\", version = \")[^\"]*(\")|\1$VERSION\2|" "crates/$c/Cargo.toml"
@@ -268,12 +269,14 @@ run_tests() {
 
 run_package() {
   if (( ! DO_PACKAGE )); then log "포장 검증 건너뜀 (--no-package)"; return 0; fi
-  log "포장 검증: cargo package ×4 (패치는 검증 전용 — Cargo.toml 에 남기지 않는다)"
+  log "포장 검증: cargo package ×5 (패치는 검증 전용 — Cargo.toml 에 남기지 않는다)"
   run cargo package --allow-dirty -p elm-magic-macros
   run cargo package --allow-dirty -p elm-magic \
     --config 'patch.crates-io.elm-magic-macros.path="crates/elm-magic-macros"'
+  # windows-reactor 의존성은 `[target.'cfg(windows)'.dependencies]` 라서
+  # 리눅스/macOS 에서도 포장·검증이 그대로 통과한다(컴파일 대상이 아니다).
   local c
-  for c in elm-magic-egui elm-magic-gpui; do
+  for c in elm-magic-egui elm-magic-gpui elm-magic-windows-reactor; do
     run cargo package --allow-dirty -p "$c" \
       --config 'patch.crates-io.elm-magic.path="."' \
       --config 'patch.crates-io.elm-magic-macros.path="crates/elm-magic-macros"'
@@ -348,8 +351,10 @@ publish_all() {
   wait_for_version elm-magic-macros
   publish_crate elm-magic
   wait_for_version elm-magic
+  # 어댑터 셋은 서로 독립이라 색인 전파를 기다릴 필요가 없다.
   publish_crate elm-magic-egui
   publish_crate elm-magic-gpui
+  publish_crate elm-magic-windows-reactor
 }
 # ── 진행 요약 / 확인 ────────────────────────────────────────────────────────
 summary() {

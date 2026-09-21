@@ -76,7 +76,7 @@ jobs:
           fi
 
       # RELEASING.md 2단계: 아직 배포되지 않은 버전은 로컬 patch로 대체해 포장을 검증한다.
-      - name: cargo package ×4
+      - name: cargo package ×5
         run: |
           cargo package --allow-dirty -p elm-magic-macros
           cargo package --allow-dirty -p elm-magic \
@@ -85,6 +85,11 @@ jobs:
             --config 'patch.crates-io.elm-magic.path="."' \
             --config 'patch.crates-io.elm-magic-macros.path="crates/elm-magic-macros"'
           cargo package --allow-dirty -p elm-magic-gpui \
+            --config 'patch.crates-io.elm-magic.path="."' \
+            --config 'patch.crates-io.elm-magic-macros.path="crates/elm-magic-macros"'
+          # windows-reactor 의존성은 `[target.'cfg(windows)'.dependencies]` 라서
+          # 리눅스에서도 포장·검증이 통과한다(WinUI 코드는 컴파일되지 않는다).
+          cargo package --allow-dirty -p elm-magic-windows-reactor \
             --config 'patch.crates-io.elm-magic.path="."' \
             --config 'patch.crates-io.elm-magic-macros.path="crates/elm-magic-macros"'
 
@@ -100,8 +105,20 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace --exclude elm-magic-gpui
-      - run: cargo test --workspace --exclude elm-magic-gpui --all-features
+      # elm-magic-windows-reactor 는 여기서 제외한다: Windows 에서는
+      # windows-reactor(WinUI 3) 전체가 컴파일 대상이 되어 스위트가 그 의존성에
+      # 묶인다. 대신 아래 Windows 전용 단계에서 어댑터만 따로 확인한다.
+      - run: cargo test --workspace --exclude elm-magic-gpui --exclude elm-magic-windows-reactor
+      - run: cargo test --workspace --exclude elm-magic-gpui --exclude elm-magic-windows-reactor --all-features
+
+      # WinUI 층(`crates/elm-magic-windows-reactor/src/winui.rs`)은 Windows 에서만
+      # 컴파일된다 — 리눅스에서는 계획(plan) 층만 검증된다. 이 단계가 그 구멍을 메운다.
+      # 첫 Windows 실측 전까지는 **비차단**으로 두고, 통과가 확인되면
+      # `continue-on-error` 줄을 지워 차단 단계로 승격한다.
+      - name: elm-magic-windows-reactor 컴파일 (Windows 실측)
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        run: cargo check -p elm-magic-windows-reactor --all-targets
 
   # ── MSRV (RELEASING.md: 최신 API가 Waker::noop → 1.85) ─────
   msrv:
@@ -114,3 +131,6 @@ jobs:
       # dev-dependencies(proptest/insta/trybuild)는 MSRV와 무관하므로 라이브러리만 검사한다.
       - run: cargo check -p elm-magic --all-features
       - run: cargo check -p elm-magic-egui
+      # windows-reactor 어댑터의 계획/구동 층은 플랫폼 독립이라 1.85에서도 검사한다
+      # (WinUI 층은 `cfg(windows)` + windows-reactor의 MSRV 1.95 조건이라 여기서 제외된다).
+      - run: cargo check -p elm-magic-windows-reactor
