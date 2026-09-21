@@ -86,6 +86,16 @@ powershell -ExecutionPolicy Bypass -File run-tests.ps1 -Check             # 컴�
 powershell -ExecutionPolicy Bypass -File run-tests.ps1 -Filter counter    # 테스트 이름 필터
 ```
 
+**예제 하나만 창으로 띄우려면** `run-example.ps1`이 더 짧다 — 고른 예제만 빌드해
+실행하고, 창을 닫으면 끝난다(테스트 타겟은 거치지 않는다):
+
+```powershell
+.\run-example.ps1 18            # 번호(또는 이름 접두어) 하나만
+.\run-example.ps1 -Example 09
+.\run-example.ps1 20 -Release   # 릴리스 빌드
+.\run-example.ps1               # 인자 없이: 목록을 보여주고 번호를 물어본다
+```
+
 - **`--features winui`가 필요한 이유**: 예제 타겟이 그 기능으로 게이트되어 있다.
   기능을 **끄면** 리눅스/macOS에서 다음이 조용히 끝난다(exit 0):
   `cargo test --examples --manifest-path examples\windows-reactor\Cargo.toml` →

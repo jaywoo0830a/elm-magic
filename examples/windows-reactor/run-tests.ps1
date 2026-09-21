@@ -16,6 +16,10 @@
         cargo test --examples --features winui --manifest-path examples\windows-reactor\Cargo.toml
         cargo run  --example 09_async_effects --features winui --manifest-path examples\windows-reactor\Cargo.toml
 
+    **하나만 창으로 보고 싶으면** 같은 디렉터리의 `run-example.ps1` 을 쓴다 —
+    `-Run` 과 같지만 목록/테스트 타겟을 거치지 않고 고른 예제만 빌드·실행한다:
+        .\run-example.ps1 18
+
 .PARAMETER Example
     예제 번호 또는 이름(접두어 일치). 예: `-Example 09`, `-Example 20_app_skeleton`.
     생략하면 20개 전부.
@@ -155,6 +159,7 @@ if ($List) {
     Write-Host '전체 테스트 : powershell -ExecutionPolicy Bypass -File .\run-tests.ps1'
     Write-Host '하나만      : powershell -ExecutionPolicy Bypass -File .\run-tests.ps1 -Example 09'
     Write-Host '창 띄우기   : powershell -ExecutionPolicy Bypass -File .\run-tests.ps1 -Example 09 -Run'
+    Write-Host '창 하나만   : .\run-example.ps1 09   (그 예제만 빌드·실행 — run-example.ps1)'
     exit 0
 }
 
