@@ -349,11 +349,7 @@ impl<C: elm_magic::Component + 'static> ElmView<C> {
     /// - WinUI 가속기는 **그 컨트롤의 스코프에 포커스가 있을 때** 동작한다(업스트림
     ///   `calculator`도 루트 `Grid`에 달아 같은 성질을 갖는다) — 창 어디에서나 잡히는
     ///   전역 단축키가 필요하면 호스트가 붙이는 편이 맞다.
-    fn attach_key_accelerators(
-        &self,
-        root: View,
-        context: &ViewContext<Self>,
-    ) -> View {
+    fn attach_key_accelerators(&self, root: View, context: &ViewContext<Self>) -> View {
         if !self.props.window.accelerators {
             return root;
         }
@@ -620,9 +616,10 @@ fn with_enter_accelerator<C: elm_magic::Component + 'static>(
     let callback = context.callback(move |_: ()| {
         let handler = Rc::clone(&handler);
         let value = value.clone();
-        ElmMessage::Key(Rc::new(move |arena: &mut elm_magic::Arena| {
-            handler(arena, value.clone())
-        }) as Rc<dyn Fn(&mut elm_magic::Arena)>)
+        ElmMessage::Key(
+            Rc::new(move |arena: &mut elm_magic::Arena| handler(arena, value.clone()))
+                as Rc<dyn Fn(&mut elm_magic::Arena)>,
+        )
     });
     let accelerators = KeyAccelerators::new([KeyAccelerator::new(
         AcceleratorKey::Enter,
