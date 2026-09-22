@@ -27,10 +27,10 @@ spawn_background, spawn_background_with_rejection, window}`만 있다). 이 저�
 | `#![windows_subsystem = "windows"]` (콘솔 숨김) | 예제는 **콘솔을 남긴다**(panic/로그 확인용) — 예제 01 헤더에 한 줄로 안내 |
 | `use windows_reactor::*;` | 필요한 이름을 **명시적으로** import(무엇을 쓰는지 보이게 — 예제라는 목적) |
 | `fn main() { App::run_component::<C>(()).unwrap(); }` | 같다(에러 문구만 한국어) |
-| `context.window_title(..)` · `window_visuals(..)` · `on_window_size(..)` | 예제 01 · 12 · 20이 호스트 컴포넌트의 `view()`에서 선언 |
+| `context.window_title(..)` · `window_visuals(..)` · `on_window_size(..)` | elm만으로 끝내려면 `ElmInput::window_title/visuals/on_window_size`(예제 01), 호스트가 창을 소유하면 그대로 `view()`에서(예제 12 · 20) |
 | `context.spawn_background(..)` (async) | 예제 11(호스트) · 12(티커) — `ElmView`의 `ElmMessage`는 `Rc`라 `Send`가 아니다 |
 | `ElementRef::new()` + `.element_ref(&r)` + `request_focus()` | 어댑터가 만든 컨트롤에는 참조를 줄 수 없다 — 예제 05 헤더에 이유를 적었다 |
-| `KeyAccelerators::new([..])` + `AcceleratorKey` | 예제 05(Enter) · 12(Ctrl+R) · 20(Ctrl+R → 새 창) |
+| `KeyAccelerators::new([..])` + `AcceleratorKey` | elm `on_key("Ctrl+R")`/`<Input on_enter>`가 **자동 매핑**된다(어댑터가 루트에 붙인다) — 매핑 불가 키만 호스트가 직접(예제 05 · 12 · 20) |
 | `context.open_window(view)` | 예제 20(런타임) · `App::run_windows([..])`(시작 시) |
 | `KeyedView::new(키, 뷰)` + `keyed_children` | 어댑터는 **위치 기반 키**를 넘긴다(문서화된 한계) — 예제 07 |
 | `Context::new(..)` + `View::provide` + `use_context` | `#[store]`와 층이 다르다는 설명 — 예제 13 |
@@ -73,16 +73,18 @@ spawn_background, spawn_background_with_rejection, window}`만 있다). 이 저�
 1. **호스트는 `ElmView` 인스턴스에 접근할 수 없다.** `ElementRef<T>`는 `T:
    ReferenceControl`(컨트롤 전용)이라 컴포넌트 참조를 얻을 길이 없다. 그래서 *개정 전*
    예제 12/20의 `fn tick(view: &ElmView<..>, ..)` 헬퍼는 **앱에서 호출할 수 없는
-   코드**였다(컴파일은 됐지만 실행 경로가 없다). → 호스트가 시계·단축키를 소유하는
-   형태로 고쳤다.
+   코드**였다(컴파일은 됐지만 실행 경로가 없다). → 시간이 흐르는 일은 호스트가 소유하고,
+   **창 선언**은 그 대신 `ElmInput` 빌더로 elm 쪽에서 할 수 있게 했다.
 2. **`drive::run`은 시계를 밀지 않는다.** `ElmView::update`가 부르는 것은 `drive::run`
    하나이므로 `<- f() after …`는 앱에서 due가 되지 않는다. `on_tick`은 더 나아가
    `drive::run_at`으로도 돌지 않는다(슬롯 시계를 미는 것은 테스트 하네스의 `advance`
    뿐이다). → 예제 12가 이 계약을 **테스트로 고정**했다.
-3. **키 이벤트는 WinUI 가속기로 잡는다.** `on_key` 핸들러는 `Ctx::keys`(아레나 안)에
-   있고 호스트가 아레나를 만질 수 없다. `AcceleratorKey`(0.100.0)는 `R` · `Enter` ·
-   사칙연산 · 숫자패드만 안다 — `Ctrl+S` 같은 문자 키는 없다. → 예제 05(Enter) ·
-   12/20(Ctrl+R)이 `KeyAccelerators`를 쓴다.
+3. **키 이벤트는 WinUI 가속기로 잡는다 — 이제 어댑터가 대신 한다.** `on_key` 핸들러는
+   `Ctx::keys`(아레나 안)에 있고 호스트는 아레나를 만질 수 없다. 그래서 어댑터의
+   `ElmView::view`가 마지막 프레임의 `Ctx::keys`를 읽어 `KeyAccelerators`로 매핑하고
+   루트에 붙인다 — elm `on_key("Ctrl+R")` · `<Input on_enter={..}>`가 **그대로 돈다**.
+   `AcceleratorKey`(0.100.0)는 `R` · `Enter` · 사칙연산 · 숫자패드만 알고 수정자는
+   `Ctrl`뿐이라, 그 밖의 키(`Ctrl+S`)는 호스트 몫으로 남는다.
 4. **비동기는 호스트가 맡는다.** `ElmMessage`가 `Rc<dyn Fn(..)>`를 나르므로 `Send`가
    아니고, 따라서 elm 안에서 `spawn_background`를 쓸 수 없다. 업스트림 `form`/
    `async-state`의 자리는 **호스트 컴포넌트**다(예제 11 · 12).
@@ -92,35 +94,58 @@ spawn_background, spawn_background_with_rejection, window}`만 있다). 이 저�
    보존한다 — elm 트리는 키를 노출하지 않아 어댑터가 위치 기반 키를 쓴다(예제 07의
    문서화된 한계, `<Raw>` 탈출구).
 
-## 4. 이번 개정에서 실제로 바꾼 것
+## 4. 어댑터(`crates/elm-magic-windows-reactor`)에서 고친 것 — 호환성
 
-- **예제 01** — 창을 선언하는 최소 호스트(`window_title`/`window_visuals`) 추가,
-  업스트림 대응·`#![windows_subsystem]` 안내.
-- **예제 05** — "Enter 불가"를 **실제 해법**으로 교체: 호스트가 값을 소유하고
-  `KeyAccelerators(Enter)`로 제출하는 두 번째 예(`QuickHost`/`QuickAdd`) + 테스트.
+업스트림 샘플은 `view()`에서 창을 선언하고 가속기를 단다. elm 코드에는 `ViewContext`가
+없어서 **그 자리가 비어 있었다** — 채웠다.
+
+| 무엇 | 어디에 | 결과 |
+|---|---|---|
+| `ElmInput::window_title/window_visuals/on_window_size/on_color_scheme` | `winui.rs`(`ElmInput`, `ViewContext` 적용) | 호스트 컴포넌트 없이 창을 선언한다 — `App::run_component::<ElmView<C>>` 한 줄이 업스트림 `counter`와 같은 모양이 된다 |
+| elm `on_key(..)` → `KeyAccelerators` | `winui.rs::attach_key_accelerators` + `accelerator_for` | 단축키가 **elm 문법 그대로** 앱에서 돈다(지원 키 한정). 매핑 불가 키만 호스트 몫 |
+| elm `<Input on_enter={..}>` → `AcceleratorKey::Enter` | `winui.rs::with_enter_accelerator` | `TextBox`에 키 이벤트가 없어도 Enter 제출이 동작한다(계획의 `enter`가 실제로 쓰인다) |
+| `ElmMessage::Key` | `winui.rs` | 가속기 콜백이 **메시지 큐를 거쳐** `update`에서 실행된다(Reactor 규칙 유지) |
+| `.accelerators(false)` | `ElmInput` | 자동 매핑을 끄고 호스트가 직접 붙이는 경로(예제 05의 두 번째 예) |
+| 매핑표·한계 문서 | `lib.rs` · `plan.rs` · `winui.rs` 헤더 | `on_enter` "미지원" 서술 제거, 업스트림↔어댑터 대응표 추가 |
+
+매핑되는 키(0.100.0 `AcceleratorKey` + `AcceleratorModifiers`): `Enter` · `R` ·
+`Numpad0..9`(+`Num0..9`) · `Add`/`+` · `Subtract`/`-` · `Multiply`/`*` · `Divide`/`/` ·
+`Decimal`/`.`, 수정자는 `Ctrl`(`Control+`)뿐. `Shift+`/`Alt+`와 그 밖의 문자 키는
+`None`이라 조용히 빠진다(어댑터 단위 테스트가 고정한다 — `winui::tests`).
+
+## 5. 이번 개정에서 실제로 바꾼 것 (예제)
+
+- **예제 01** — 호스트 컴포넌트를 없애고 `ElmInput::window_title/visuals`로 창을 선언
+  (업스트림 `counter`와 같은 한 줄 진입). `ElmInput` 동일성 계약 테스트 추가.
+- **예제 05** — "Enter 불가"를 **실제 해법**으로 교체: `<Input on_enter>`가 어댑터의
+  Enter 가속기로 동작한다(첫 예 `Form` + 테스트). 호스트가 값을 소유하는 경우는
+  두 번째 예(`QuickHost`)로 남겨 "매핑 불가 키/호스트 소유" 경로를 보여 준다.
 - **예제 07 · 13 · 15** — 업스트림 대응(`keyed-list-reorder`/`virtual`, `context`,
   `message-box`)과 확인된 API 목록 추가.
-- **예제 12** — "누가 구동하는가"를 표로 정정하고, 죽은 `tick(..)` 헬퍼를
-  `spawn_background` 자기-재무장 티커 + `KeyAccelerators(Ctrl+R)` + `window_visuals`로
-  교체. `drive` 모듈은 **테스트/커스텀 호스트용**임을 명시하고 계약 테스트를 추가.
+- **예제 12** — "누가 구동하는가" 표를 정정(키는 지원 키 한정으로 **돈다**), elm
+  `on_key("Ctrl+R")`가 매핑되므로 호스트 가속기를 제거하고 티커만 호스트가 소유.
+  죽은 `tick(..)` 헬퍼는 `spawn_background` 자기-재무장 티커로 교체 + 계약 테스트.
 - **예제 19** — 상태 3분기(`Ready`/`Empty`/`Failed`)를 **효과로 실제 생성**
   (`phase = Loading; phase <- load(..)`) — 업스트림 `async-state`의 자리를 elm 문법으로.
-- **예제 20** — 앱 골격을 실행 가능하게: `window_visuals` · `on_window_size` ·
-  `open_window`(Ctrl+R → 새 창) · 정정된 구동 표.
-- **전체** — `cargo check --examples --features winui` 경고 0개(테스트 전용 계약은
-  `#[allow(dead_code)]` + 이유 주석으로 표시).
+- **예제 20** — 창 선언/크기·창 열기를 호스트가 소유하되 **단축키는 elm이 선언**하고,
+  새 창 요청은 콜백 prop(`on_open`)으로 올린다(테스트 포함).
+- **전체** — `cargo check --examples --features winui` 경고 0개, 예제 테스트 98개 통과.
 
-## 5. 어댑터로 넘길 후속 제안 (예제 밖)
+## 6. 남은 후속 제안 (코어/어댑터)
 
-- `ElmView::update`가 **시계를 밀도록** 한다: `Instant` 기반으로
-  `drive::run_at(ctx, elapsed)`을 부르면 `<- f() after ..`가 앱에서도 돈다
-  (`on_tick`은 슬롯 시계가 따로라 코어 쪽 손질이 필요하다).
-- `plan` 층이 **`on_key` 핸들러를 `KeyAccelerators`로 매핑**하면 단축키가 elm 문법
-  그대로 동작한다(`ElmMessage`에 `Key(String)` 변형 추가). 지금은 호스트가 우회한다.
-- **진짜 키**를 트리에 노출해 `KeyedView::new`에 넘기면 업스트림 `keyed-list-reorder`와
+- **시계**: `ElmView`가 `Instant` 기준으로 `drive::run_at(ctx, elapsed)`을 부르면
+  `<- f() after ..`가 앱에서도 due가 된다(호스트가 시계를 공급하지 않아도).
+  `on_tick`은 슬롯 시계가 따로라 코어 쪽 손질(`drive`에 `advance` 상당)이 필요하다.
+- **`on_key`의 나머지 키**: WinUI `AcceleratorKey`가 늘거나 코어가 WinUI 키 코드를
+  알게 되면 매핑표(`accelerator_for`)만 넓히면 된다. 지금은 `R`·`Enter`·사칙연산·
+  숫자패드 + `Ctrl`뿐이다.
+- **진짜 키**: 트리에 키를 실어 `KeyedView::new`에 넘기면 업스트림 `keyed-list-reorder`와
   같은 수준이 된다(현재는 위치 기반).
+- **`ContentDialog` 버튼**: 0.100.0은 `primary_button_text`/`close_button_text`와
+  `on_closed(ContentDialogResult)`를 주는데 elm `<Modal>`에는 그 자리가 없다 —
+  코어에 속성을 추가하면 어댑터가 그대로 옮길 수 있다.
 
-## 6. 업스트림을 직접 읽을 때
+## 7. 업스트림을 직접 읽을 때
 
 ```
 crates/samples/reactor/<이름>/src/main.rs   ← 샘플 본문 (창 하나 = 파일 하나)

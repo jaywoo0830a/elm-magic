@@ -1,28 +1,31 @@
-//! windows-reactor 예제 05 — 입력: `on_change`는 되고 `on_enter`는 안 된다 (그리고 대안)
-//! **업스트림 대응**: `controlled`(controlled 입력) · `form`(`ElementRef` 포커스) ·
-//! `calculator`(Enter를 `KeyAccelerators`로 잡기) · `text-box-border`/`text-trimming`.
+//! windows-reactor 예제 05 — 입력: `on_change` + `on_enter`(가속기)
 //!
+//! **업스트림 대응**: `controlled`(controlled 입력) · `calculator`(Enter를
+//! `KeyAccelerators`로 잡기) · `form`(`ElementRef` 포커스) · `text-box-border`/`text-trimming`.
 //!
 //! **언제 쓰나**: 텍스트 입력을 가진 화면.
 //!
 //! **사실 관계** (windows-reactor 0.100.0 `generated.rs`)
 //! - `TextBox`가 가진 이벤트는 `on_text_changed`뿐이다. **키 이벤트가 없다** —
-//!   그래서 elm의 `on_enter`는 이 어댑터가 붙이지 않는다(계획에는 `enter`로 남는다).
-//! - Enter는 **WinUI 수준에서** 잡는다. 업스트림 `calculator` 샘플이 쓰는 바로 그
-//!   방법이다 — `Grid::key_accelerators(KeyAccelerators::new([KeyAccelerator::new(
-//!   AcceleratorKey::Enter, AcceleratorModifiers::None, context.message(..))]))`.
-//!   단 `ElmView`는 `ViewContext`를 노출하지 않으므로 **값을 호스트가 소유**해야
-//!   그 콜백에서 제출할 수 있다 — 이 파일의 두 번째 예(`QuickHost`)가 그 모양이다.
-//!   `AcceleratorKey`(0.100.0)가 아는 키는 `R` · `Enter` · 사칙연산 · 숫자패드뿐이다:
-//!   `Ctrl+S` 같은 문자 키는 **없다**(예제 12의 단축키 주의 참고).
-//! - 가장 단순한 대안은 **확인 버튼**이다 — 이 파일의 첫 예(`Form`).
+//!   Enter는 WinUI **가속기**(`KeyAccelerators`)로만 잡힌다. 업스트림 `calculator`
+//!   샘플이 쓰는 바로 그 방법이다.
+//! - 그래서 **어댑터가 대신 붙인다**: elm `<Input on_enter={..}>`의 핸들러를
+//!   `AcceleratorKey::Enter` 가속기로 옮기고(`Grid`로 한 겹 감싼다 — 가속기를 받는
+//!   컨트롤이 `Grid`/`Button`뿐이다), 눌리면 `ElmMessage::Key`로 돌아와 아레나에서
+//!   실행된다. **호스트 코드가 필요 없다**(아래 첫 예 `Form`). `Windows API`의
+//!   `KeyAccelerator`를 직접 다룰 일은 이제 없다.
+//! - elm `on_key("Ctrl+R")` 같은 선언도 같은 방식으로 매핑된다. 다만
+//!   `AcceleratorKey`(0.100.0)가 아는 키는 `R` · `Enter` · 사칙연산 · 숫자패드 +
+//!   `Ctrl`뿐이라 **`Ctrl+S`는 매핑되지 않는다** — 그런 키는 호스트가
+//!   `KeyAccelerators`를 직접 붙이거나 `<Raw>`에서 처리한다(예제 12의 표 참고).
+//! - 값은 **elm 슬롯**으로 둔다(`value={name.clone()}`) — WinUI 쪽에 별도 버퍼를
+//!   두지 않는다. 그래야 헤드리스 테스트(`type_into`/`press_enter`)와 앱이 같은
+//!   계약을 쓴다. 반대로 **호스트가 값의 주인**이어야 하는 경우(검증/저장을 호스트가
+//!   맡는 경우)도 있다 — 두 번째 예(`QuickHost`)가 그 모양이다(거기서는 elm이 값을
+//!   갖지 않으므로 어댑터가 붙일 Enter 핸들러도 없다 → 호스트가 직접 단다).
 //! - `ElementRef<TextBox>::request_focus()`(업스트림 `form` 샘플)로 포커스를 옮길 수
 //!   있지만, 그 `TextBox`는 어댑터가 `<Input>`에서 만드는 것이라 **호스트가 참조를
 //!   가질 수 없다**. 포커스 제어가 필요하면 `<Raw>`로 `TextBox`를 직접 만든다(예제 08).
-//! - 값은 **elm 슬롯**으로 둔다(`value={name.clone()}`) — WinUI 쪽에 별도 버퍼를
-//!   두지 않는다. 그래야 헤드리스 테스트(`type_into`)와 앱이 같은 계약을 쓴다.
-//!   (두 번째 예는 반대로 **호스트가 값의 주인**이다 — Enter 때문이다. 둘 중 하나를
-//!   고르는 기준은 "키보드 단축키가 필요한가"다.)
 //!
 //! **`<TextArea>`**: 어댑터가 `accepts_return(true)` + `text_wrapping(Wrap)`을 켠다 —
 //! Enter가 개행이 된다(줄바꿈이 곧 입력이므로 `on_enter`가 필요 없다).
@@ -44,7 +47,10 @@ elm_magic::view! {
         submitted: Vec<String> = vec![],
     ) {
         <Col>
-            <Input value={name.clone()} on_change={name = _} />
+            <Input
+                value={name.clone()}
+                on_change={name = _}
+                on_enter={submitted.push(name.clone())} />
             <TextArea value={memo.clone()} on_change={memo = _} />
             <Button on_click={submitted.push(name.clone())}>"제출"</Button>
             <For each={submitted} as={s}>
@@ -54,10 +60,11 @@ elm_magic::view! {
     }
 }
 
-// ── 두 번째 예: Enter를 WinUI 가속기로 잡는다 ──────────────────────────────
+// ── 두 번째 예: 값을 **호스트가 소유**하고 가속기도 호스트가 단다 ────────────
 //
-// **호스트가 값의 주인**이다. elm은 그 값을 그리고 변경을 콜백 prop으로 올려보낸다.
-// 그러면 호스트의 `KeyAccelerator` 콜백이 아레나 없이 제출할 수 있다.
+// elm은 값을 갖지 않고(그래서 `on_enter` 선언도 없다) 변경을 콜백 prop으로 올려보낸다.
+// 그러면 호스트의 `KeyAccelerator` 콜백이 아레나 없이 제출할 수 있다 — 검증·저장을
+// 호스트가 맡는 앱에서 자연스러운 모양이다(예제 11의 계약).
 
 elm_magic::view! {
     fn QuickAdd(value: String = String::new(), submitted: Vec<String> = vec![], on_name: fn(String)) {
@@ -214,5 +221,25 @@ mod tests {
         assert_eq!(input.value.as_deref(), Some("elm"), "값은 호스트가 준다");
         assert!(pass.has_text("값: elm"));
         assert!(pass.has_text("elm"), "제출 목록이 화면에 실린다");
+    }
+
+    /// Enter는 **어댑터가** 가속기로 옮긴다 — 계획에 `enter`가 실리고, 헤드리스에서는
+    /// `press_enter()`가 그 핸들러를 돈다(앱에서는 WinUI 가속기가 같은 핸들러를 부른다).
+    #[test]
+    fn enter_is_carried_in_the_plan_and_fires_headless() {
+        let mut ctx = Ctx::new();
+        let tree = elm_magic::frame::<Form>(&mut ctx, &FormProps::default());
+        let (node, _) = plan(&tree);
+        let input = node
+            .children
+            .iter()
+            .find(|c| matches!(c.kind, PlanKind::TextBox { multiline: false }))
+            .expect("Input");
+        assert!(input.enter.is_some(), "어댑터가 Enter를 가속기로 붙인다");
+
+        let mut app = elm_magic::mount!(Form);
+        app.type_into("input", "elm");
+        app.press_enter();
+        app.assert_text("elm"); // 제출 목록에 들어갔다
     }
 }

@@ -42,8 +42,9 @@
 //!   자식 목록은 WinUI 층에서 **위치 기반 키**로 넘어간다 — Reactor의
 //!   `keyed_children`을 쓰되 키는 인덱스다.
 //! - **`on_enter`**: Reactor 0.100의 `TextBox`에는 키 이벤트가 없다. Enter는
-//!   라우티드 키 콜백(`Border::on_preview_key_down`)으로만 잡히므로 계획에는
-//!   [`PlanNode::enter`]로 남기고 WinUI 층은 붙이지 않는다(예제 05의 대안 참고).
+//!   WinUI **가속기**(`KeyAccelerators`)로만 잡히므로, 계획에는
+//!   [`PlanNode::enter`]로 남기고 WinUI 층이 `AcceleratorKey::Enter` 가속기를 붙인다
+//!   (가속기를 받는 컨트롤이 `Grid`/`Button`뿐이라 `Grid`로 한 겹 감싼다 — 예제 05).
 //! - **`<Tab>`**: Reactor의 `TabView`는 **컨테이너**라 형제 `<Tab>`들을 그대로
 //!   옮길 수 없다. 그래서 버튼으로 옮기고, 진짜 `TabView`가 필요하면 `<Raw>`를 쓴다.
 
@@ -186,7 +187,11 @@ pub struct PlanNode {
     pub disabled: bool,
     /// 주 이벤트(클릭/변경/토글/닫힘).
     pub event: Option<PlanEvent>,
-    /// `Input`/`TextArea`의 Enter 핸들러 — **계획에는 남지만 WinUI 층은 붙이지 않는다**.
+    /// `Input`/`TextArea`의 Enter 핸들러 — WinUI 층이 `AcceleratorKey::Enter`
+    /// **가속기**로 붙인다(`TextBox`에는 키 이벤트가 없다).
+    ///
+    /// 가속기 콜백은 인자가 없으므로 WinUI 층이 **그 프레임의 값**(`value`)을
+    /// 캡처해서 넘긴다 — 핸들러가 받는 텍스트는 화면이 마지막으로 그린 값이다.
     pub enter: Option<ValueHandler>,
     /// `<Raw>` 클로저.
     pub raw: Option<RawFn>,

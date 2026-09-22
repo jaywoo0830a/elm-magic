@@ -24,6 +24,28 @@
 //! 화면이 한 번에 갱신된다. 지연 효과(`after`)는 `ctx.arena.set_now(..)`로 시계를
 //! 밀어야 due가 되므로, 실무에서는 `ComponentContext::set_timeout`으로 메시지를
 //! 보내 그 시점에 시계를 갱신하는 편이 맞다(예제 11 참고).
+//!
+//! ## 업스트림이 `view()`에서 하는 일을 누가 하나 (호환성)
+//!
+//! 업스트림 샘플은 **컴포넌트의 `view()`에서** 창을 선언하고(`window_title`,
+//! `window_visuals`, `on_window_size`) 가속기를 붙인다(`KeyAccelerators`).
+//! elm 코드는 `ViewContext`를 볼 수 없으므로, 그 자리를 [`ElmInput`]이 대신한다:
+//!
+//! | 업스트림 (샘플) | 이 어댑터 |
+//! |---|---|
+//! | `context.window_title("..")` | `ElmInput::new(props).window_title("..")` |
+//! | `context.window_visuals(WindowVisuals::new()..)` | `.window_visuals(visuals)` |
+//! | `context.on_window_size(context.callback(Msg::Resized))` | `.on_window_size(\|size\| ..)` |
+//! | `context.on_color_scheme(..)` | `.on_color_scheme(\|scheme\| ..)` |
+//! | `Grid::new().key_accelerators(..)`를 루트에 | elm `on_key("Ctrl+R")` → 자동 매핑 |
+//! | `Grid::new().key_accelerators(Enter)`로 입력 제출 | elm `<Input on_enter={..}>` → 자동 매핑 |
+//! | `App::run_component::<C>(())` | `App::run_component::<ElmView<C>>(ElmInput::new(props))` |
+//!
+//! 가속기는 `AcceleratorKey`(0.100.0)가 아는 키만 매핑된다 — `R` · `Enter` ·
+//! 사칙연산 · 숫자패드 + `Ctrl`. 그 밖의 키(`Ctrl+S` 등)는 **조용히 건너뛴다**
+//! (호스트가 직접 `KeyAccelerators`를 붙이거나 `<Raw>`를 쓰면 된다).
+//! 가속기를 받을 수 있는 컨트롤은 `Grid`/`Button`뿐이라, 매핑이 필요하면
+//! 루트를 `Grid`로 한 겹 감싼다(레이아웃은 그대로다 — spacing 0).
 
 use std::any::Any;
 use std::cell::{Ref, RefCell, RefMut};
@@ -31,13 +53,14 @@ use std::rc::Rc;
 
 use elm_magic::Ctx;
 use windows_reactor::{
-    Border, Button, CheckBox, ChildrenControl, Component, ComponentContext, ContentControl,
-    ContentDialog, ContentDialogResult, FontWeight, InfoBar, InfoBarSeverity, KeyedView,
-    Orientation, PointerEventInfo, ProgressBar, ProgressRing, StackPanel, TextBlock, TextBox,
-    TextWrapping, Thickness, View, ViewContext,
+    AcceleratorKey, AcceleratorModifiers, Border, Button, CheckBox, ChildrenControl, ColorScheme,
+    Component, ComponentContext, ContentControl, ContentDialog, ContentDialogResult, FontWeight,
+    Grid, InfoBar, InfoBarSeverity, KeyAccelerator, KeyAccelerators, KeyedView, Orientation,
+    PointerEventInfo, ProgressBar, ProgressRing, StackPanel, TextBlock, TextBox, TextWrapping,
+    Thickness, View, ViewContext, WindowSize, WindowVisuals,
 };
 
-use crate::plan::{plan, Pass, PlanEvent, PlanKind, PlanNode, Severity};
+use crate::plan::{plan, Pass, PlanEvent, PlanKind, PlanNode, Severity, ValueHandler};
 
 /// `<Raw>`가 값을 채우는 슬롯.
 ///
@@ -68,6 +91,26 @@ pub enum ElmMessage {
     Toggle(Rc<dyn Fn(&mut elm_magic::Arena, bool)>, bool),
     /// 다이얼로그 닫힘 — `ContentDialog::on_closed`.
     Close(Rc<dyn Fn(&mut elm_magic::Arena)>),
+    /// 키보드 가속기 — elm `on_key(..)`/`on_enter`가 WinUI `KeyAccelerators`로 내려온 것.
+    ///
+    /// `KeyAccelerators`는 `Grid`/`Button`에만 붙일 수 있고 `AcceleratorKey`가 아는
+    /// 키도 한정돼 있다 — 그래서 **문자열 키를 아레나 핸들러로 바꿔 나르는** 것이
+    /// 이 변형의 일이다(`accelerator_for` 참고).
+    Key(Rc<dyn Fn(&mut elm_magic::Arena)>),
+}
+
+/// 창 선언 — 업스트림이 `ViewContext`로 하는 일 중 **elm 코드가 쓸 수 있어야 하는 것**.
+///
+/// `ViewContext`는 컴포넌트의 `view()`에서만 손에 쥘 수 있는데, elm 코드는
+/// 그 자리에 없다. 그래서 그 통로를 [`ElmInput`]의 빌더로 옮겼다.
+#[derive(Clone)]
+struct WindowDeclaration {
+    title: Option<String>,
+    visuals: Option<WindowVisuals>,
+    on_window_size: Option<Rc<dyn Fn(WindowSize)>>,
+    on_color_scheme: Option<Rc<dyn Fn(ColorScheme)>>,
+    /// elm `on_key(..)`/`on_enter`를 WinUI 가속기로 내려보낼지 (기본 `true`).
+    accelerators: bool,
 }
 
 /// Reactor `Input` 요구사항(`Clone + PartialEq + 'static`)을 만족시키는 props 래퍼.
@@ -76,8 +119,38 @@ pub enum ElmMessage {
 /// `Clone`만 파생한다). 그래서 **값 비교 대신 동일성**(같은 `Rc`)으로 비교한다 —
 /// 부모가 새 props를 만들어 넘기면 `input_changed`가 불리고, 같은 값을 다시
 /// 넘기면(`Rc` 복제) 불리지 않는다.
+///
+/// ## 창/가속기 선언 (업스트림 호환)
+///
+/// 업스트림 샘플은 `view()`에서 창을 선언하고 가속기를 단다. elm 쪽은
+/// `ViewContext`가 없으므로 **같은 선언을 여기서** 한다 — 선언은 매 발행
+/// (`view()` 호출)마다 그대로 적용되므로 elm 상태에 따라 제목이 바뀌게 할 수도
+/// 있다(그때는 부모가 매 프레임 새 `ElmInput`을 만든다 — 예제 02의 규칙).
+///
+/// ```ignore
+/// App::run_component::<ElmView<Counter>>(
+///     ElmInput::new(CounterProps::default())
+///         .window_title("elm-magic — 카운터")
+///         .window_visuals(WindowVisuals::new().client_size(360.0, 220.0)),
+/// )
+/// ```
 pub struct ElmInput<P> {
     props: Rc<P>,
+    window: WindowDeclaration,
+}
+
+impl Default for WindowDeclaration {
+    fn default() -> Self {
+        Self {
+            title: None,
+            visuals: None,
+            on_window_size: None,
+            on_color_scheme: None,
+            // elm이 `on_key`/`on_enter`로 선언한 것은 **자동으로** 내려보낸다
+            // (업스트림에서 선언이 곧 효과인 것과 같다).
+            accelerators: true,
+        }
+    }
 }
 
 impl<P> ElmInput<P> {
@@ -85,6 +158,7 @@ impl<P> ElmInput<P> {
     pub fn new(props: P) -> Self {
         Self {
             props: Rc::new(props),
+            window: WindowDeclaration::default(),
         }
     }
 
@@ -92,12 +166,51 @@ impl<P> ElmInput<P> {
     pub fn props(&self) -> &P {
         &self.props
     }
+
+    /// 창 제목 — 업스트림의 `context.window_title(..)`.
+    pub fn window_title(mut self, title: impl Into<String>) -> Self {
+        self.window.title = Some(title.into());
+        self
+    }
+
+    /// 창 크기/테마 — 업스트림의 `context.window_visuals(..)`.
+    pub fn window_visuals(mut self, visuals: WindowVisuals) -> Self {
+        self.window.visuals = Some(visuals);
+        self
+    }
+
+    /// 창 크기 변화 관찰 — 업스트림의 `context.on_window_size(..)`.
+    ///
+    /// 호출은 **메시지로 큐에 들어간다**(Reactor 규칙) — 그래서 관찰자는
+    /// `update`가 도는 시점에 불린다. 받은 값을 elm에 반영하려면 호스트가 그 값을
+    /// 소유하고 props로 내려보낸다(예제 20).
+    pub fn on_window_size(mut self, observe: impl Fn(WindowSize) + 'static) -> Self {
+        self.window.on_window_size = Some(Rc::new(observe));
+        self
+    }
+
+    /// 라이트/다크 전환 관찰 — 업스트림의 `context.on_color_scheme(..)`.
+    pub fn on_color_scheme(mut self, observe: impl Fn(ColorScheme) + 'static) -> Self {
+        self.window.on_color_scheme = Some(Rc::new(observe));
+        self
+    }
+
+    /// elm `on_key`/`on_enter`를 WinUI 가속기로 내려보낼지 (기본 `true`).
+    ///
+    /// 끄면 elm의 키 선언은 **헤드리스 계약으로만** 남는다(호스트가 직접
+    /// `KeyAccelerators`를 붙이는 경우 — 예제 05의 두 번째 예).
+    pub fn accelerators(mut self, enabled: bool) -> Self {
+        self.window.accelerators = enabled;
+        self
+    }
 }
 
 impl<P> Clone for ElmInput<P> {
     fn clone(&self) -> Self {
         Self {
             props: Rc::clone(&self.props),
+            // 창 선언도 함께 물려받는다 — 선언은 매 발행마다 그대로 적용된다.
+            window: self.window.clone(),
         }
     }
 }
@@ -184,6 +297,7 @@ impl<C: elm_magic::Component + 'static> Component for ElmView<C> {
             ElmMessage::Change(handler, value) => handler(&mut ctx.arena, value),
             ElmMessage::Toggle(handler, value) => handler(&mut ctx.arena, value),
             ElmMessage::Close(handler) => handler(&mut ctx.arena),
+            ElmMessage::Key(handler) => handler(&mut ctx.arena),
         }
         // elm의 `<-`(효과)와 `->`(스트림)는 런타임이 자동으로 돌리지 않는다.
         // Reactor에서는 **이 발행(publish) 안에서** 구동해 결과를 한 번에 반영한다.
@@ -191,6 +305,23 @@ impl<C: elm_magic::Component + 'static> Component for ElmView<C> {
     }
 
     fn view(&self, _input: &Self::Input, context: &mut ViewContext<Self>) -> View {
+        // 0) 창 선언 — 업스트림이 `view()`에서 하는 일과 **같은 자리**다.
+        //    elm 코드는 `ViewContext`를 볼 수 없으므로 `ElmInput`이 그 통로다.
+        if let Some(title) = &self.props.window.title {
+            context.window_title(title.clone());
+        }
+        if let Some(visuals) = self.props.window.visuals.clone() {
+            context.window_visuals(visuals);
+        }
+        if let Some(observe) = &self.props.window.on_window_size {
+            let observe = Rc::clone(observe);
+            // 관찰자는 호스트 콜백이므로 메시지를 거치지 않는다(값만 전달).
+            context.on_window_size(move |size: WindowSize| observe(size));
+        }
+        if let Some(observe) = &self.props.window.on_color_scheme {
+            let observe = Rc::clone(observe);
+            context.on_color_scheme(move |scheme: ColorScheme| observe(scheme));
+        }
         // 1) elm 프레임: 상태 → Element 트리 (`view(&self)`인데 아레나는 RefCell이다)
         let tree = {
             let mut ctx = self.ctx.borrow_mut();
@@ -200,14 +331,126 @@ impl<C: elm_magic::Component + 'static> Component for ElmView<C> {
         let (node, pass) = plan(&tree);
         *self.pass.borrow_mut() = pass;
         // 3) 계획 → WinUI 컨트롤
-        build(&node, context)
+        let root = build(&node, context);
+        // 4) elm `on_key` → WinUI `KeyAccelerators` (업스트림 `calculator`의 자리)
+        self.attach_key_accelerators(root, context)
     }
+}
+
+impl<C: elm_magic::Component + 'static> ElmView<C> {
+    /// 마지막 프레임이 `on_key`로 등록한 핸들러를 WinUI 가속기로 내려보낸다.
+    ///
+    /// - 매핑할 수 있는 키가 하나도 없으면 **루트를 손대지 않는다**(불필요한 `Grid`
+    ///   래퍼를 만들지 않는다).
+    /// - 하나라도 있으면 루트를 `Grid`로 감싼다 — 가속기를 받는 컨트롤이
+    ///   `Grid`/`Button`뿐이기 때문이다(`Spacing` 0이라 레이아웃은 그대로다).
+    /// - `Ctrl+S`처럼 `AcceleratorKey`에 없는 키는 조용히 건너뛴다 — 그 키는
+    ///   호스트가 직접 붙이거나 `<Raw>`에서 처리한다.
+    /// - WinUI 가속기는 **그 컨트롤의 스코프에 포커스가 있을 때** 동작한다(업스트림
+    ///   `calculator`도 루트 `Grid`에 달아 같은 성질을 갖는다) — 창 어디에서나 잡히는
+    ///   전역 단축키가 필요하면 호스트가 붙이는 편이 맞다.
+    fn attach_key_accelerators(
+        &self,
+        root: View,
+        context: &ViewContext<Self>,
+    ) -> View {
+        if !self.props.window.accelerators {
+            return root;
+        }
+        // `frame`이 아레나를 빌린 동안에는 읽을 수 없다 — 프레임 뒤에 읽는다
+        // (`begin_frame`이 매 프레임 `keys`를 비우고 다시 채운다).
+        let keys: Vec<(String, Rc<dyn Fn(&mut elm_magic::Arena)>)> = {
+            let ctx = self.ctx.borrow();
+            ctx.keys
+                .iter()
+                .map(|(key, handler)| (key.clone(), Rc::clone(handler)))
+                .collect()
+        };
+        let accelerators: Vec<KeyAccelerator> = keys
+            .iter()
+            .filter_map(|(key, handler)| {
+                let (accelerator, modifiers) = accelerator_for(key)?;
+                let handler = Rc::clone(handler);
+                Some(KeyAccelerator::new(
+                    accelerator,
+                    modifiers,
+                    context.callback(move |_: ()| ElmMessage::Key(Rc::clone(&handler))),
+                ))
+            })
+            .collect();
+        if accelerators.is_empty() {
+            return root;
+        }
+        Grid::new()
+            .key_accelerators(KeyAccelerators::new(accelerators))
+            .children([root])
+            .into()
+    }
+}
+
+/// elm 키 문자열(`on_key("Ctrl+R")`) → WinUI 가속기.
+///
+/// `AcceleratorKey`(0.100.0)가 아는 키는 `R` · `Enter` · 사칙연산 · 숫자패드뿐이고
+/// 수정자도 `Control` 하나뿐이다(Shift/Alt 없음). 그래서 **아는 것만** 매핑하고
+/// 나머지는 `None`이다 — 조용히 무시되므로, 동작하지 않는 키는 호스트가 붙여야 한다.
+fn accelerator_for(key: &str) -> Option<(AcceleratorKey, AcceleratorModifiers)> {
+    let mut rest = key.trim();
+    let mut modifiers = AcceleratorModifiers::None;
+    // `Ctrl+R` / `Control+R` (대소문자 무시). Shift/Alt는 표현할 수 없다.
+    for prefix in ["Ctrl+", "Control+", "CTRL+"] {
+        if rest.len() >= prefix.len() && rest[..prefix.len()].eq_ignore_ascii_case(prefix) {
+            modifiers = AcceleratorModifiers::Control;
+            rest = &rest[prefix.len()..];
+            break;
+        }
+    }
+    if rest.len() >= 6 && rest[..6].eq_ignore_ascii_case("Shift+") {
+        return None;
+    }
+    let name = rest.to_ascii_lowercase();
+    let accelerator = match name.as_str() {
+        "enter" | "return" | "엔터" => AcceleratorKey::Enter,
+        "r" => AcceleratorKey::R,
+        "add" | "+" => AcceleratorKey::Add,
+        "subtract" | "-" => AcceleratorKey::Subtract,
+        "multiply" | "*" => AcceleratorKey::Multiply,
+        "divide" | "/" => AcceleratorKey::Divide,
+        "decimal" | "." => AcceleratorKey::Decimal,
+        "numpad0" | "num0" | "numpad_0" => AcceleratorKey::NumberPad0,
+        "numpad1" | "num1" | "numpad_1" => AcceleratorKey::NumberPad1,
+        "numpad2" | "num2" | "numpad_2" => AcceleratorKey::NumberPad2,
+        "numpad3" | "num3" | "numpad_3" => AcceleratorKey::NumberPad3,
+        "numpad4" | "num4" | "numpad_4" => AcceleratorKey::NumberPad4,
+        "numpad5" | "num5" | "numpad_5" => AcceleratorKey::NumberPad5,
+        "numpad6" | "num6" | "numpad_6" => AcceleratorKey::NumberPad6,
+        "numpad7" | "num7" | "numpad_7" => AcceleratorKey::NumberPad7,
+        "numpad8" | "num8" | "numpad_8" => AcceleratorKey::NumberPad8,
+        "numpad9" | "num9" | "numpad_9" => AcceleratorKey::NumberPad9,
+        _ => return None,
+    };
+    Some((accelerator, modifiers))
 }
 
 // ── 계획 → WinUI 컨트롤 ─────────────────────────────────────
 
 /// 계획 노드 하나를 Reactor 뷰로 바꾼다 (자식은 재귀).
+///
+/// 컨트롤을 만든 뒤 [`PlanNode::enter`]에 적힌 Enter 핸들러를 **가속기로** 붙인다 —
+/// `TextBox`에는 키 이벤트가 없어서 Enter는 `KeyAccelerators`로만 잡힌다
+/// (업스트림 `calculator`가 Enter를 가속기로 받는 것과 같은 방법).
 fn build<C: elm_magic::Component + 'static>(
+    node: &PlanNode,
+    context: &ViewContext<ElmView<C>>,
+) -> View {
+    let view = build_control(node, context);
+    match &node.enter {
+        Some(handler) => with_enter_accelerator(view, node, handler, context),
+        None => view,
+    }
+}
+
+/// 계획 노드를 **컨트롤 하나로** 바꾼다 (종류별 매핑).
+fn build_control<C: elm_magic::Component + 'static>(
     node: &PlanNode,
     context: &ViewContext<ElmView<C>>,
 ) -> View {
@@ -359,6 +602,39 @@ fn children_of<C: elm_magic::Component + 'static>(
         .collect()
 }
 
+/// elm `<Input on_enter={..}>`를 WinUI **Enter 가속기**로 옮긴다.
+///
+/// elm의 `on_enter`는 `(상태, 현재 텍스트)`를 받는 핸들러다 — 가속기의 콜백은
+/// 인자가 없으므로 **그 프레임의 값**(`node.value`)을 캡처해 넘긴다. 화면이 다시
+/// 그려질 때마다 새 클로저가 만들어지므로 캡처된 값은 항상 최신이다.
+///
+/// 가속기를 받는 컨트롤은 `Grid`/`Button`뿐이라 `Grid`로 한 겹 감싼다(간격 0).
+fn with_enter_accelerator<C: elm_magic::Component + 'static>(
+    view: View,
+    node: &PlanNode,
+    handler: &ValueHandler,
+    context: &ViewContext<ElmView<C>>,
+) -> View {
+    let handler = Rc::clone(handler);
+    let value = node.value.clone().unwrap_or_default();
+    let callback = context.callback(move |_: ()| {
+        let handler = Rc::clone(&handler);
+        let value = value.clone();
+        ElmMessage::Key(Rc::new(move |arena: &mut elm_magic::Arena| {
+            handler(arena, value.clone())
+        }) as Rc<dyn Fn(&mut elm_magic::Arena)>)
+    });
+    let accelerators = KeyAccelerators::new([KeyAccelerator::new(
+        AcceleratorKey::Enter,
+        AcceleratorModifiers::None,
+        callback,
+    )]);
+    Grid::new()
+        .key_accelerators(accelerators)
+        .children([view])
+        .into()
+}
+
 /// 자식 목록에 붙일 키 — elm 트리는 key를 노출하지 않으므로 **위치**가 키다.
 ///
 /// elm 코어는 keyed 슬롯의 상태를 아레나에서 관리하지만 그 키는 트리에 실리지
@@ -376,5 +652,51 @@ fn severity_of(severity: Severity) -> InfoBarSeverity {
         Severity::Success => InfoBarSeverity::Success,
         Severity::Warning => InfoBarSeverity::Warning,
         Severity::Error => InfoBarSeverity::Error,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // WinUI 컨텍스트가 필요 없는 **순수 매핑**만 시험한다(창은 띄우지 않는다).
+    use super::{accelerator_for, WindowDeclaration};
+    use windows_reactor::{AcceleratorKey, AcceleratorModifiers};
+
+    /// 업스트림이 쓰는 키는 매핑되고, 0.100.0에 없는 키는 **조용히** 빠진다.
+    #[test]
+    fn only_upstream_accelerator_keys_map() {
+        assert_eq!(
+            accelerator_for("Enter"),
+            Some((AcceleratorKey::Enter, AcceleratorModifiers::None))
+        );
+        assert_eq!(
+            accelerator_for("Ctrl+R"),
+            Some((AcceleratorKey::R, AcceleratorModifiers::Control))
+        );
+        // 대소문자는 가리지 않는다.
+        assert_eq!(
+            accelerator_for("control+r"),
+            Some((AcceleratorKey::R, AcceleratorModifiers::Control))
+        );
+        assert_eq!(
+            accelerator_for("Numpad7"),
+            Some((AcceleratorKey::NumberPad7, AcceleratorModifiers::None))
+        );
+        assert_eq!(
+            accelerator_for("+"),
+            Some((AcceleratorKey::Add, AcceleratorModifiers::None))
+        );
+        // 0.100.0의 `AcceleratorKey`/`AcceleratorModifiers`에 없는 것들 —
+        // 이 키들은 호스트가 직접 붙이거나 `<Raw>`에서 처리해야 한다.
+        assert_eq!(accelerator_for("Ctrl+S"), None);
+        assert_eq!(accelerator_for("Shift+Enter"), None);
+        assert_eq!(accelerator_for("F5"), None);
+        assert_eq!(accelerator_for("Tab"), None);
+    }
+
+    /// 기본값은 "elm이 선언한 키를 그대로 내려보낸다"다 — 호스트가 직접 붙이는
+    /// 경우에만 끈다(예제 05의 두 번째 예).
+    #[test]
+    fn accelerators_default_to_on() {
+        assert!(WindowDeclaration::default().accelerators);
     }
 }

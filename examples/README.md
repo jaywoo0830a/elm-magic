@@ -119,17 +119,26 @@ powershell -ExecutionPolicy Bypass -File run-tests.ps1 -Filter counter    # 테�
 `examples/windows-reactor/UPSTREAM.md`에 정리했다. 예제 헤더의 사실 주장은 배포본
 `windows-reactor 0.100.0` 소스와 `cargo check`/`cargo test`로 검증했다.
 
+이 대조에서 **어댑터도 함께 고쳤다** — 업스트림이 `view()`에서 하는 일(창 선언 ·
+가속기)을 elm 쪽에서 할 통로가 없었기 때문이다:
+`ElmInput::window_title/window_visuals/on_window_size/on_color_scheme`,
+elm `on_key`/`on_enter` → WinUI `KeyAccelerators` 자동 매핑(`ElmMessage::Key`),
+`.accelerators(false)` 탈출구. 자세한 표는 `UPSTREAM.md` §4.
+
 핵심만 옮기면:
 
 1. **호스트는 `ElmView` 인스턴스에 접근할 수 없다** — `ElementRef<T>`는
    `T: ReferenceControl`(컨트롤 전용)이다. 그래서 "호스트가 프레임마다
    `drive::run_at`/`drive::dispatch_key`를 부른다"는 골격은 앱에서 **실행할 수 없다**.
-   → 시계·단축키는 **호스트가 소유**하고 elm에는 값만 내려보낸다(예제 12 · 20).
+   → 시간이 흐르는 일(주기 갱신)은 **호스트가 소유**하고 elm에는 값만 내려보낸다
+   (예제 12 · 20). 창 선언은 `ElmInput::window_title/visuals`로 elm 쪽에서도 할 수 있다.
 2. **`drive::run`은 시계를 밀지 않는다**(`ElmView::update`가 부르는 유일한 구동이다) →
    `<- f() after ..` · `on_tick`은 앱 경로에서 돌지 않는다. 예제 12의 테스트가 이
    계약을 고정한다.
-3. **단축키는 WinUI `KeyAccelerators`로 잡는다** — `AcceleratorKey`(0.100.0)에는 `R` ·
-   `Enter` · 사칙연산 · 숫자패드만 있다(`Ctrl+S`는 없다). 예제 05(Enter) · 12 · 20(Ctrl+R).
+3. **단축키와 Enter는 어댑터가 WinUI `KeyAccelerators`로 내려보낸다** — elm
+   `on_key("Ctrl+R")`/`<Input on_enter={..}>`가 그대로 동작한다(루트를 `Grid`로 한 겹
+   감싼다). `AcceleratorKey`(0.100.0)에 있는 키만 매핑된다: `R` · `Enter` · 사칙연산 ·
+   숫자패드 + `Ctrl`. `Ctrl+S` 같은 키는 호스트가 직접 붙인다(예제 05 · 12 · 20).
 4. **업스트림 샘플은 배포본이 아니라 저장소 소스(마스터)를 따른다**
    (`windows-reactor = { workspace = true }`) — 그래서 마스터 샘플에는 배포본 0.100.0에
    없는 API가 섞여 있다(예: `message-box`의 `context.run_window`). 이 저장소는 배포본
@@ -157,10 +166,13 @@ powershell -ExecutionPolicy Bypass -File run-tests.ps1 -Filter counter    # 테�
    windows-reactor 어댑터는 이걸 `drive` 모듈로 공개하고, `ElmView::update`가
    자동으로 부른다 — 구현은 `egui/09`·`egui/10`·`gpui/11`·`gpui/13`·`gpui/20`·
    `windows-reactor/09`·`10`·`12`·`20`에 있다.
-2. **`on_key`는 앱이 키를 디스패치해야 한다.**
+2. **`on_key`는 앱이 키를 디스패치해야 한다** (windows-reactor는 예외 — 어댑터가 한다).
    핸들러는 `Ctx::keys`(`Vec<(String, KeyHandler)>`)에 쌓인다 —
    테스트의 `press_key("Ctrl+S")`처럼 앱이 찾아 호출한다(`gpui/13`의 `dispatch_key`,
-   `windows-reactor`의 `drive::dispatch_key`). `on_tick`도 같은 원리로 시계가 있어야 돈다.
+   `windows-reactor`의 `drive::dispatch_key`). windows-reactor 어댑터만은 그 목록을
+   **WinUI `KeyAccelerators`로 자동 매핑**하므로 elm 선언이 앱에서 그대로 돈다
+   (지원 키 한정 — 그래도 계약 검증은 `drive::dispatch_key`로 한다).
+   `on_tick`도 같은 원리로 시계가 있어야 돈다.
 3. **`#[store]`의 범위는 "아레나 하나"다.**
    `Arena.stores`에 있으므로 **한 컴포넌트 트리 안에서만** 공유된다 —
    별개의 `ElmView`/`Ctx`끼리는 공유하지 않는다(예제 `egui/13`, `gpui/14`,

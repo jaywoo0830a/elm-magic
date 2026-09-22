@@ -10,20 +10,24 @@
 //! 1. **스타일 설치가 없다** — 이 어댑터는 스타일 계층을 지원하지 않는다.
 //!    테마/색은 WinUI 리소스(`ThemeBrush`)가 담당한다(예제 16).
 //! 2. **창은 호스트가 선언한다**: `window_title`, `window_visuals(client_size)`,
-//!    `on_window_size`, `KeyAccelerators` — Reactor가 창을 다루는 자리다
-//!    (업스트림 `window`·`secondary-window`·`calculator` 샘플과 같은 API).
+//!    `on_window_size` — Reactor가 창을 다루는 자리다(업스트림 `window` 샘플과 같은 API).
+//!    elm만으로 끝내려면 같은 선언을 `ElmInput`에 붙인다(예제 01) — **창마다 하나만**
+//!    선언한다(호스트와 elm이 같은 창에 둘 다 선언하면 중복이다).
 //! 3. elm 화면은 `View::component::<ElmView<Root>>(ElmInput::new(props))`로 붙인다.
 //!    (`#[store] struct App`이 이 모듈에 `struct App`을 만들므로 Reactor의 `App`은
 //!    import 하지 않고 경로로 쓴다 — `use windows_reactor::App`은 E0255다.)
 //! 4. **앱이 구동할 수 있는 것과 없는 것** (정본은 예제 12의 표):
 //!    - **돈다**: `<- f()`(지연 없음), `on_mount` / `on_unmount` — `ElmView::update`가
 //!      메시지 처리 뒤 같은 발행에서 `drive::run`을 부른다.
-//!    - **돌지 않는다**: `<- f() after …` · `on_tick` · `on_key` — 호스트가 아레나에
-//!      접근할 수 없다(`ElmView` 인스턴스 참조를 얻을 길이 없다, 예제 12).
-//!      **시간이 흐르는 일은 호스트가 소유**하고(`schedule_tick`), **단축키는 WinUI
-//!      가속기**가 잡는다(아래 `Shell::view`).
+//!    - **돈다 (지원 키 한정)**: `on_key` — 어댑터가 마지막 프레임의 `Ctx::keys`를
+//!      WinUI `KeyAccelerators`로 매핑해 준다(아래 `Root`의 `Ctrl+R`). `AcceleratorKey`
+//!      (0.100.0)에 없는 키는 매핑되지 않으니 호스트가 직접 붙인다.
+//!    - **돌지 않는다**: `<- f() after …` · `on_tick` — 호스트가 아레나에 접근할 수
+//!      없다(`ElmView` 인스턴스 참조를 얻을 길이 없다, 예제 12). **시간이 흐르는 일은
+//!      호스트가 소유**하고(`schedule_tick`) 결과를 props로 내려보낸다.
 //! 5. 창을 더 열려면 `ComponentContext::open_window(view)`(런타임, 업스트림
 //!    `secondary-window`) 또는 `App::run_windows([..])`(시작할 때) — 창마다 아레나가 따로다.
+//!    elm은 창을 만들 수 없으므로 **콜백 prop**으로 호스트에게 부탁한다(아래 `on_open`).
 //!
 //! **베스트 패턴**
 //! - 셸(창/제목/전역)은 **호스트 컴포넌트** 하나로, 화면 내용은 **elm 루트 컴포넌트**
@@ -36,10 +40,7 @@
 
 use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{ElmInput, ElmView};
-use windows_reactor::{
-    AcceleratorKey, AcceleratorModifiers, ChildrenControl, Component, ComponentContext, Grid,
-    KeyAccelerator, KeyAccelerators, View, ViewContext, WindowSize, WindowVisuals,
-};
+use windows_reactor::{Component, ComponentContext, View, ViewContext, WindowSize, WindowVisuals};
 
 #[store]
 struct App {
@@ -66,20 +67,23 @@ elm_magic::view! {
 }
 
 elm_magic::view! {
-    fn Root(online: bool) {
-        // elm 쪽 단축키 — 이 백엔드에서 **호스트는 이 핸들러를 부를 수 없다**(예제 12).
-        // 계약은 헤드리스 테스트(`press_key`)가 지키고, 앱 단축키는 호스트의 WinUI
-        // 가속기가 담당한다(아래 `Shell::view`) — 한 키를 두 곳에 두지 않는다.
+    fn Root(online: bool, on_open: fn()) {
+        // 지원 키는 **어댑터가 매핑**해서 앱에서도 돈다(`Ctrl+R` → `AcceleratorKey::R`
+        // + `Ctrl`). 매핑 불가 키(`Ctrl+S`)는 호스트 몫이다(예제 05의 두 번째 예).
         on_key("Ctrl+R") { app.clicks = 0 }
         <Col>
             <Header />
             <Counter />
             "online: {online}"
+            // 창은 호스트만 열 수 있다 — elm은 콜백 prop으로 부탁한다(예제 11의 계약).
+            <Button on_click={on_open()}>"새 창"</Button>
         </Col>
     }
 }
 
-/// 호스트 — **창/제목/크기/단축키를 소유**하고, elm 화면에 값을 props로 내려보낸다.
+/// 호스트 — **창/제목/크기를 소유**하고, elm 화면에 값을 props로 내려보낸다.
+/// elm이 창을 열 수 없으므로(`open_window`는 `ComponentContext`에만 있다) elm의
+/// "새 창" 요청은 **콜백 prop**으로 올라온다(예제 11의 계약).
 struct Shell {
     online: bool,
     windows: u32,
@@ -88,7 +92,7 @@ struct Shell {
 
 #[derive(Clone)]
 enum ShellMessage {
-    /// `Ctrl+R` (WinUI 가속기) — 새 창을 연다.
+    /// elm의 콜백 prop(`on_open`)이 큐에 넣는다 — 새 창을 연다.
     Open,
     /// 창 크기 변화 — `ViewContext::on_window_size`가 준다.
     Resized(WindowSize),
@@ -136,25 +140,23 @@ impl Component for Shell {
         // 크기 변화는 콜백으로 호스트 상태에 들어온다 (업스트림 `window` 샘플의 자리).
         context.on_window_size(context.callback(ShellMessage::Resized));
 
-        // 단축키는 WinUI가 잡는다 — elm의 `on_key` 핸들러는 호스트가 부를 수 없다
-        // (`Ctx::keys`는 아레나 안에 있고, 호스트는 `ElmView` 인스턴스를 못 갖는다: 예제 12).
-        // 실제 앱에서는 **한 키를 한 곳에만** 둔다 — 여기서는 두 경로를 나란히 보여 준다.
-        let accelerators = KeyAccelerators::new([KeyAccelerator::new(
-            AcceleratorKey::R,
-            AcceleratorModifiers::Control,
-            context.message(ShellMessage::Open),
-        )]);
+        // elm → 호스트: 창을 여는 일은 호스트만 할 수 있다. 콜백 prop을 내려보내면
+        // elm의 버튼이 `on_open()`을 부르고, 호스트는 자기 메시지 큐에 넣는다
+        // (Reactor는 콜백 안에서 `update`를 인라인 실행하지 않는다).
+        let sender = context.sender();
+        let on_open = Callback::new(move |_arena, ()| {
+            let _ = sender.send(ShellMessage::Open);
+        });
 
-        Grid::new()
-            .key_accelerators(accelerators)
-            .children([View::fragment((
-                View::component::<ElmView<Root>>(ElmInput::new(RootProps {
-                    online: Some(self.online),
-                    ..Default::default()
-                })),
-                // 호스트가 소유한 값 — elm 문법으로 표현할 수 없는 것들은 이렇게 내려보낸다.
-                format!("창 {}개 · {}×{}", self.windows, self.size.width, self.size.height),
-            ))])
+        View::fragment((
+            View::component::<ElmView<Root>>(ElmInput::new(RootProps {
+                online: Some(self.online),
+                on_open: Some(on_open),
+                ..Default::default()
+            })),
+            // 호스트가 소유한 값 — elm 문법으로 표현할 수 없는 것들은 이렇게 내려보낸다.
+            format!("창 {}개 · {}×{}", self.windows, self.size.width, self.size.height),
+        ))
     }
 }
 
@@ -203,6 +205,25 @@ mod tests {
         app.assert_text("clicks: 1");
         app.click("테마"); // store 갱신 (화면에는 표시되지 않지만 상태는 바뀐다)
         app.assert_text("clicks: 1");
+    }
+
+    /// elm의 콜백 prop은 **값 없이** 호스트에게 올라간다(`on_open()`) — 창 열기는
+    /// 호스트만 할 수 있으므로(`open_window`는 `ComponentContext`에만 있다) 이 경로가
+    /// 유일하다. `zero-arg` 콜백 prop이 `Callback<()>`로 풀리는 것도 함께 고정한다.
+    #[test]
+    fn the_open_request_reaches_the_host() {
+        let opened = std::rc::Rc::new(std::cell::Cell::new(0));
+        let counter = std::rc::Rc::clone(&opened);
+        let mut app = elm_magic::mount_with::<Root>(RootProps {
+            online: Some(true),
+            on_open: Some(Callback::new(move |_arena, ()| {
+                counter.set(counter.get() + 1);
+            })),
+            ..Default::default()
+        });
+
+        app.click("새 창");
+        assert_eq!(opened.get(), 1, "elm의 버튼이 호스트 콜백을 부른다");
     }
 
     #[test]

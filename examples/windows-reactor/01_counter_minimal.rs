@@ -9,6 +9,10 @@
 //! - props는 [`ElmInput`]으로 감싼다. Reactor의 `Input`은 `Clone + PartialEq`를
 //!   요구하는데 elm의 `…Props`는 `Clone`만 파생하므로, 어댑터가 **동일성 비교**
 //!   래퍼를 제공한다(예제 02).
+//! - **창 선언도 `ElmInput`이 나른다**: `window_title`/`window_visuals`를 붙이면
+//!   호스트 컴포넌트(`ViewContext`를 쥔 쪽) 없이 창 제목/크기를 정할 수 있다 —
+//!   업스트림 `counter`가 `App::run_component` 한 줄로 끝나는 것과 같은 모양이다.
+//!   호스트가 창을 소유하는 쪽은 예제 12 · 20이다(둘 다 맞다 — 창마다 하나만 선언한다).
 //! - 상태 아레나는 `ElmView`가 소유한다. **엔티티 하나 = 컴포넌트 인스턴스 하나**다.
 //!
 //! **주의**
@@ -22,7 +26,9 @@
 //! - `counter` — 컴포넌트가 상태를 갖고 클릭이 메시지가 된다. 이 어댑터에서는 **elm
 //!   컴포넌트가 그 컴포넌트**이므로 `App::run_component::<ElmView<C>>`가 그 자리에 온다.
 //! - `controlled` — 값이 항상 상태에서 내려온다(`TextBox`가 controlled인 이유, 예제 05).
-//! - 창을 직접 다루는 자리는 `window` 샘플이다(`window_title`/`window_visuals`) — 예제 20.
+//! - 창을 직접 다루는 자리(업스트림 `window`)를 elm 쪽에서 쓰려면
+//!   `ElmInput::window_title(..)`/`.window_visuals(..)`가 그 통로다 — 아래 `main`.
+//!   호스트 컴포넌트가 창을 소유하는 쪽은 예제 12 · 20.
 //!
 //! **의존성**
 //! ```toml
@@ -33,7 +39,7 @@
 //! ```
 
 use elm_magic_windows_reactor::{ElmInput, ElmView};
-use windows_reactor::{App, Component, ComponentContext, View, ViewContext, WindowVisuals};
+use windows_reactor::{App, WindowVisuals};
 
 elm_magic::view! {
     fn Counter(n = 0) {
@@ -47,32 +53,20 @@ elm_magic::view! {
     }
 }
 
-/// 창을 **선언하는 최소 호스트** — 제목/크기는 호스트 컴포넌트의 `view()`가 정한다.
+/// 창 선언을 붙인 입력 — **호스트 컴포넌트 없이** 제목/크기를 정한다.
 ///
-/// 이게 없으면(`App::run_component::<ElmView<Counter>>`) Reactor 기본 창이 뜬다.
-struct Root;
-
-impl Component for Root {
-    type Input = ();
-    type Message = ();
-
-    fn create(_input: &(), _context: &ComponentContext<Self>) -> Self {
-        Self
-    }
-
-    fn view(&self, _input: &(), context: &mut ViewContext<Self>) -> View {
-        context.window_title("elm-magic — 카운터");
-        context.window_visuals(WindowVisuals::new().client_size(360.0, 220.0));
-        View::component::<ElmView<Counter>>(ElmInput::new(CounterProps::default()))
-    }
+/// 업스트림 `window` 샘플은 컴포넌트의 `view()`에서 `context.window_title(..)`를
+/// 부른다. elm 코드에는 그 `context`가 없으므로 **같은 선언을 `ElmInput`에** 둔다.
+fn counter_input() -> ElmInput<CounterProps> {
+    ElmInput::new(CounterProps::default())
+        .window_title("elm-magic — 카운터")
+        .window_visuals(WindowVisuals::new().client_size(360.0, 220.0))
 }
 
 fn main() {
     // 창 하나 + 컴포넌트 하나. WinUI 메시지 루프가 닫힐 때까지 블록된다.
-    //
-    // 제목/크기까지 필요 없으면 이 한 줄이면 된다(Reactor 기본 창):
-    //   App::run_component::<ElmView<Counter>>(ElmInput::new(CounterProps::default()))
-    App::run_component::<Root>(()).expect("Reactor 실행 실패");
+    // (창 선언이 필요 없으면 `App::run_component::<ElmView<Counter>>(ElmInput::new(..))`.)
+    App::run_component::<ElmView<Counter>>(counter_input()).expect("Reactor 실행 실패");
 }
 
 #[cfg(test)]
