@@ -1,5 +1,8 @@
 //! windows-reactor 예제 03 — 한 창에 여러 `ElmView` / 여러 창
 //!
+//! **업스트림 대응**: `gallery` · `navigation`(한 창에 여러 컴포넌트) /
+//! `window` · `secondary-window`(여러 창). 창을 늘리는 API도 같다 — `App::run_windows([..])`.
+//!
 //! **언제 쓰나**: 대시보드처럼 독립 화면을 나란히 두거나, 창을 여러 개 띄울 때.
 //!
 //! **두 가지 방법**
@@ -15,7 +18,6 @@
 //!   두 화면이 같은 값을 보려면 각자 다시 그려져야 한다.
 //! - 창마다 `ElmView`가 따로 살고, 각 창이 자기 메시지 큐를 갖는다(Reactor 보장).
 
-use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{ElmInput, ElmView};
 use windows_reactor::{App, Component, ComponentContext, View, ViewContext};
 
@@ -71,6 +73,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use elm_magic::prelude::*;
     use super::*;
     use elm_magic_windows_reactor::plan;
 

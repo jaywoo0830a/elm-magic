@@ -9,14 +9,23 @@
 //!   elm이 그걸 받아 상태를 `false`로 바꾸지 않으면, **다음 프레임에 다시 열린다**.
 //! - 그래서 `<Modal on_close={open = false}>`처럼 **닫힘을 상태에 반영**해야 한다.
 //!
-//! **버튼 문구**: `primary_button_text`/`close_button_text` 등은 WinUI 속성이라
-//! 어댑터가 정하지 않는다 — 필요하면 `<Raw>`로 `ContentDialog`를 직접 만들거나
-//! 다이얼로그 본문 안에 elm `<Button>`을 둔다(여기서는 후자).
+//! **버튼 문구**: `<Modal>`은 `ContentDialog`의 `title` + 본문 + `on_closed`만 옮긴다.
+//! 0.100.0의 `ContentDialog`가 가진 나머지는 `primary_button_text` ·
+//! `secondary_button_text` · `close_button_text` · `is_primary_button_enabled` ·
+//! `is_secondary_button_enabled` · `on_closed(ContentDialogResult)`다 — 이걸 쓰려면
+//! **다이얼로그를 직접** 만들어야 한다(`<Raw>` 또는 호스트 컴포넌트). 그러면 열림
+//! 상태도 호스트가 소유한다(버튼 문구를 elm 상태로 바꾸는 길은 없다).
+//! 여기서는 다이얼로그 **본문 안에 elm `<Button>`**을 두는 쪽을 쓴다 — 문구가 elm
+//! 상태/로케일을 따르고, 닫힘도 elm 상태 하나로 정리된다.
+//!
+//! **업스트림 대응**: `message-box` 샘플은 `context.run_window`로 네이티브 대화상자를
+//! 띄우는데, 그 API는 **배포된 0.100.0에 없다**(업스트림 샘플은 저장소 경로 의존이라
+//! 마스터를 따라간다 — `windows-reactor = { workspace = true }`). 이 저장소는 배포본
+//! 0.100.0을 쓰므로 WinUI `ContentDialog`를 쓰는 `<Modal>`이 정답이다.
 //!
 //! **주의**: `ContentDialog`는 한 번에 하나만 열 수 있다(WinUI 규칙). 여러 개를
 //! 동시에 열어야 하면 화면 전환(라우팅)이나 `Flyout`으로 푼다.
 
-use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{ElmInput, ElmView};
 use windows_reactor::{App, Component, ComponentContext, View, ViewContext};
 
@@ -61,6 +70,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use elm_magic::prelude::*;
     use elm_magic_windows_reactor::{plan, PlanEvent};
 
     #[test]

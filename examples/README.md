@@ -11,6 +11,7 @@ examples/
 ├── gpui/01_…20_*.rs        ← gpui-kit 어댑터 + ElmView 패턴
 └── windows-reactor/        ← WinUI 3 어댑터 (스타일 계층 없음)
     ├── 01_…30_*.rs         ←   예제 30개 (`fn main()` + WinUI 호스트)
+    ├── UPSTREAM.md         ←   업스트림 windows-rs 샘플과의 대조표 (무엇을 왜 고쳤나)
     ├── Cargo.toml          ←   예제 전용 패키지 — `[[example]]` 30개 등록 + `winui` 게이트
     └── run-tests.ps1       ←   Windows 실행/테스트 편의 스크립트
 ```
@@ -110,6 +111,29 @@ powershell -ExecutionPolicy Bypass -File run-tests.ps1 -Filter counter    # 테�
   (`mount!`/`flush`/`advance`/`plan()`)만 쓰므로 리눅스에서도 그대로 돈다 —
   그래서 이 스위트는 "Windows가 없으면 검증 불가"가 아니라 "Windows가 없으면
   창만 못 띄운다"에 가깝다.
+
+## 업스트림 windows-rs 샘플과의 대조 (`windows-reactor/UPSTREAM.md`)
+
+예제 30개를 [microsoft/windows-rs `crates/samples`](https://github.com/microsoft/windows-rs/tree/master/crates/samples)
+(`reactor/` 55개 디렉터리)와 맞대어 본 결과와 **그에 따라 고친 것**을
+`examples/windows-reactor/UPSTREAM.md`에 정리했다. 예제 헤더의 사실 주장은 배포본
+`windows-reactor 0.100.0` 소스와 `cargo check`/`cargo test`로 검증했다.
+
+핵심만 옮기면:
+
+1. **호스트는 `ElmView` 인스턴스에 접근할 수 없다** — `ElementRef<T>`는
+   `T: ReferenceControl`(컨트롤 전용)이다. 그래서 "호스트가 프레임마다
+   `drive::run_at`/`drive::dispatch_key`를 부른다"는 골격은 앱에서 **실행할 수 없다**.
+   → 시계·단축키는 **호스트가 소유**하고 elm에는 값만 내려보낸다(예제 12 · 20).
+2. **`drive::run`은 시계를 밀지 않는다**(`ElmView::update`가 부르는 유일한 구동이다) →
+   `<- f() after ..` · `on_tick`은 앱 경로에서 돌지 않는다. 예제 12의 테스트가 이
+   계약을 고정한다.
+3. **단축키는 WinUI `KeyAccelerators`로 잡는다** — `AcceleratorKey`(0.100.0)에는 `R` ·
+   `Enter` · 사칙연산 · 숫자패드만 있다(`Ctrl+S`는 없다). 예제 05(Enter) · 12 · 20(Ctrl+R).
+4. **업스트림 샘플은 배포본이 아니라 저장소 소스(마스터)를 따른다**
+   (`windows-reactor = { workspace = true }`) — 그래서 마스터 샘플에는 배포본 0.100.0에
+   없는 API가 섞여 있다(예: `message-box`의 `context.run_window`). 이 저장소는 배포본
+   기준으로 쓴다.
 
 ## 예제를 실제로 돌리려면
 

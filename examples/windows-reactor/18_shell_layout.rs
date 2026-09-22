@@ -1,5 +1,9 @@
 //! windows-reactor 예제 18 — 셸 레이아웃 (헤더 / 사이드바 / 본문 / 상태바)
 //!
+//! **업스트림 대응**: `navigation` · `responsive-navigation` · `notepad` — 업스트림 셸도
+//! `Grid` + `NavigationView`로 사이드바/본문을 나눈다(elm 트리는 1D `StackPanel`까지
+//! 매핑되므로 셸은 `<Raw>`가 맡는다).
+//!
 //! **언제 쓰나**: 앱의 뼈대를 잡을 때.
 //!
 //! **기본 대응**
@@ -26,7 +30,6 @@
 //! prop 동기화는 자식이 아직 안 쓴 동안만 유효하다). 공유 값은 **셸이 소유**하고
 //! 자식에게는 props + 콜백(`on_select: fn(i32)`)을 내려보낸다 — 아래 `Sidebar`.
 
-use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{ElmInput, ElmView, RawSlot};
 use windows_reactor::{
     App, Border, Brush, ChildrenControl, Component, ComponentContext, ContentControl, LayoutControl,
@@ -105,6 +108,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use elm_magic::prelude::*;
     use super::*;
     use elm_magic_windows_reactor::plan;
 

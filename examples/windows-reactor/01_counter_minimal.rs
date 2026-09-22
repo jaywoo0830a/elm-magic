@@ -15,6 +15,14 @@
 //! - `css!`는 이 백엔드에서 **효과가 없다** — 어댑터가 스타일 계층을 지원하지 않는다.
 //!   간격/색은 WinUI 테마·리소스로, 세부 조정은 `<Raw>`로 한다(예제 16, 08).
 //! - `windows-reactor`는 Windows 전용(WASDK)이다. 이 파일은 Windows에서만 컴파일된다.
+//! - 콘솔 창이 함께 뜨는 것이 싫으면 파일 맨 위에 `#![windows_subsystem = "windows"]`를
+//!   둔다 — 업스트림 샘플은 전부 이 속성을 쓴다(여기서는 panic/로그가 보이도록 두지 않았다).
+//!
+//! **업스트림 대응** (`crates/samples/reactor/`)
+//! - `counter` — 컴포넌트가 상태를 갖고 클릭이 메시지가 된다. 이 어댑터에서는 **elm
+//!   컴포넌트가 그 컴포넌트**이므로 `App::run_component::<ElmView<C>>`가 그 자리에 온다.
+//! - `controlled` — 값이 항상 상태에서 내려온다(`TextBox`가 controlled인 이유, 예제 05).
+//! - 창을 직접 다루는 자리는 `window` 샘플이다(`window_title`/`window_visuals`) — 예제 20.
 //!
 //! **의존성**
 //! ```toml
@@ -24,9 +32,8 @@
 //! windows-reactor = "0.100"
 //! ```
 
-use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{ElmInput, ElmView};
-use windows_reactor::App;
+use windows_reactor::{App, Component, ComponentContext, View, ViewContext, WindowVisuals};
 
 elm_magic::view! {
     fn Counter(n = 0) {
@@ -40,14 +47,37 @@ elm_magic::view! {
     }
 }
 
+/// 창을 **선언하는 최소 호스트** — 제목/크기는 호스트 컴포넌트의 `view()`가 정한다.
+///
+/// 이게 없으면(`App::run_component::<ElmView<Counter>>`) Reactor 기본 창이 뜬다.
+struct Root;
+
+impl Component for Root {
+    type Input = ();
+    type Message = ();
+
+    fn create(_input: &(), _context: &ComponentContext<Self>) -> Self {
+        Self
+    }
+
+    fn view(&self, _input: &(), context: &mut ViewContext<Self>) -> View {
+        context.window_title("elm-magic — 카운터");
+        context.window_visuals(WindowVisuals::new().client_size(360.0, 220.0));
+        View::component::<ElmView<Counter>>(ElmInput::new(CounterProps::default()))
+    }
+}
+
 fn main() {
     // 창 하나 + 컴포넌트 하나. WinUI 메시지 루프가 닫힐 때까지 블록된다.
-    App::run_component::<ElmView<Counter>>(ElmInput::new(CounterProps::default()))
-        .expect("Reactor 실행 실패");
+    //
+    // 제목/크기까지 필요 없으면 이 한 줄이면 된다(Reactor 기본 창):
+    //   App::run_component::<ElmView<Counter>>(ElmInput::new(CounterProps::default()))
+    App::run_component::<Root>(()).expect("Reactor 실행 실패");
 }
 
 #[cfg(test)]
 mod tests {
+    use elm_magic::prelude::*;
     use super::*;
     use elm_magic_windows_reactor::plan;
 

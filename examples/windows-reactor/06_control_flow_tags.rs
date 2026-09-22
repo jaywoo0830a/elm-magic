@@ -1,5 +1,9 @@
 //! windows-reactor 예제 06 — 제어 흐름 태그 (`<If>` / `<For>` / `<Switch>` / `<>`)
 //!
+//! **업스트림 대응**: 없음 — 업스트림에는 elm 태그가 없고 `if`/`for`/`match`가 Rust
+//! 문법이다. 다만 **결과는 같다**: 조건/반복이 감싸는 컨트롤을 만들지 않고, 분기마다
+//! 맞는 컨트롤만 남는다.
+//!
 //! **언제 쓰나**: 본문에서 조건/반복을 태그로 쓸 때. **어댑터가 바뀌지 않는 이유**:
 //! 제어 흐름 태그는 매크로가 **컴파일타임에 펼치는** 문법이라 트리에는 감싼 요소만
 //! 남는다(감싸는 컨트롤이 생기지 않는다).
@@ -17,10 +21,12 @@
 //! - `<For>`는 부모 `StackPanel`의 자식으로 **평평하게** 들어간다(래퍼 컨트롤 없음).
 //!   자식 목록은 위치 기반 키로 넘어간다(예제 07의 한계 참고).
 
-use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{ElmInput, ElmView};
 use windows_reactor::{App, Component, ComponentContext, View, ViewContext};
 
+/// 화면 상태. `Loading`/`Failed`는 이 파일의 계약을 고정하는 `#[cfg(test)]`가
+/// 만들고, 본문(`main`)은 props 기본값(`Idle`)으로 뜬다 — 그래서 `allow`를 둔다.
+#[allow(dead_code)]
 #[derive(Clone, PartialEq, Debug)]
 enum Status {
     Idle,
@@ -80,6 +86,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use elm_magic::prelude::*;
     use super::*;
     use elm_magic_windows_reactor::plan;
 
@@ -92,7 +99,7 @@ mod tests {
     #[test]
     fn branches_choose_different_controls() {
         // Loading → ProgressRing, Failed → InfoBar.
-        let (node, pass) = panel(PanelProps {
+        let (_node, pass) = panel(PanelProps {
             status: Some(Status::Loading),
             ..Default::default()
         });

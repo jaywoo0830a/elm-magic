@@ -1,4 +1,8 @@
 //! windows-reactor 예제 23 — **간격과 리듬**: 4/8 DIP 그리드 · padding vs margin
+//! **업스트림 대응**: `gallery` · `card` · `stacker` — 업스트림 샘플의 여백도
+//! `StackPanel::spacing`/`Border::padding`/`LayoutControl::margin` **세 곳에서만** 나온다
+//! (CSS 개념이 아니라 WinUI 배치 규칙이다).
+//!
 //!
 //! **언제 쓰나**: 화면이 "왜 이렇게 답답하지/헐거우지" 할 때. 원인은 대개 **간격이
 //! 화면마다 다르기 때문**이다 — 값을 고르기 전에 **단위(리듬)** 를 정한다.
@@ -21,7 +25,6 @@
 //! - 밀도 전환은 **단위만** 바꾼다(8 ↔ 4). 화면 코드는 손대지 않는다.
 //! - 목록의 간격은 `spacing`, 예외적인 여백만 `margin`으로 둔다(둘을 섞지 않는다).
 
-use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{ElmInput, ElmView, RawSlot};
 use windows_reactor::{
     App, Border, Brush, ChildrenControl, Component, ComponentContext, ContentControl, CornerRadius,
@@ -47,6 +50,9 @@ impl Rhythm {
     }
 
     /// 모든 단계가 단위의 배수인가 — 리듬의 정의를 코드로 옮긴 것.
+    /// 화면은 값을 직접 쓰고, 이 술어는 `#[cfg(test)]`가 모든 밀도에서 단언한다
+    /// — `allow`는 "테스트 전용 계약"이라는 표시다.
+    #[allow(dead_code)]
     fn is_rhythmic(&self) -> bool {
         self.steps()
             .iter()
@@ -216,6 +222,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use elm_magic::prelude::*;
     use super::*;
     use elm_magic_windows_reactor::{plan, Pass, PlanNode};
 

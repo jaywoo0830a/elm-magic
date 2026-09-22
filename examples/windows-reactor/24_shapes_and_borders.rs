@@ -1,4 +1,8 @@
 //! windows-reactor 예제 24 — **모양과 테두리**: 반지름 · 변별 테두리 · 도형
+//! **업스트림 대응**: `shape` · `card` · `icon`(아바타/점 표시) — 업스트림은
+//! `Ellipse`/`Rectangle`/`Line`을 그대로 쓴다. 이 예제도 같은 타입을 `<Raw>`에서 쓴다
+//! (`CornerRadius`는 `Border`의 속성이다).
+//!
 //!
 //! **언제 쓰나**: 카드/배지/아바타처럼 "형태"가 정보를 전달할 때.
 //!
@@ -19,7 +23,6 @@
 //! - 긴 구분선 = `Line`(`x1..y2`). 짧은 구분선은 1px `Border`가 더 간단하다(예제 23).
 //! - 도형도 **레이아웃 컨트롤**이다 — 크기는 `LayoutControl::{width, height}`로 준다.
 
-use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{ElmInput, ElmView, RawSlot};
 use windows_reactor::{
     App, Border, Brush, ChildrenControl, Color, Component, ComponentContext, ContentControl,
@@ -37,6 +40,9 @@ const RADII: [(f64, &str); 5] = [
 ];
 
 /// 알약 판정 — 999는 "높이보다 큰 값"이라는 관례다. **값을 외우지 않고 함수로** 둔다.
+/// 화면은 라벨을 그대로 쓰고, 이 술어는 `#[cfg(test)]`가 스케일 전체에 대해
+/// 단언한다 — `allow`는 "테스트 전용 계약"이라는 표시다.
+#[allow(dead_code)]
 fn is_pill(radius: f64) -> bool {
     radius >= 100.0
 }
@@ -224,6 +230,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use elm_magic::prelude::*;
     use super::*;
     use elm_magic_windows_reactor::{plan, Pass, PlanNode};
 

@@ -1,5 +1,9 @@
 //! windows-reactor 예제 08 — `<Raw>` 탈출구: **WinUI 컨트롤을 돌려준다**
 //!
+//! **업스트림 대응**: `element-ref` · `drag-drop` · `pointer-*` · `tooltip-placement` —
+//! 업스트림 샘플이 WinUI 컨트롤을 직접 잡는 자리와 **정확히 같은 지점**이다
+//! (차이는 Reactor 타입을 elm 트리에 넣는 방법뿐).
+//!
 //! **언제 쓰나**: 이 어댑터가 표현하지 않는 WinUI 기능 — 간격/정렬 같은 레이아웃
 //! 세부, `ScrollViewer`, `Grid`, `ListView`, `TabView`, 커스텀 컨트롤.
 //!
@@ -18,7 +22,6 @@
 //! - 큰 WinUI 컴포넌트를 반복해서 쓰게 되면, 어댑터의 계획 층에 정식 매핑을 추가하는
 //!   편이 낫다(`crates/elm-magic-windows-reactor/src/plan.rs`).
 
-use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{ElmInput, ElmView, RawSlot};
 use windows_reactor::{
     App, Border, ChildrenControl, Component, ComponentContext, LayoutControl, StackPanel,
@@ -69,6 +72,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use elm_magic::prelude::*;
     use super::*;
     use elm_magic_windows_reactor::plan;
 

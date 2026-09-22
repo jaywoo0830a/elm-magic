@@ -1,4 +1,8 @@
 //! windows-reactor 예제 26 — **버튼 변형**: 스타일 4종 · 리소스 오버라이드 · 비활성 상태
+//! **업스트림 대응**: `button-icon` · `app-bar-icon` · `radio-buttons` — 업스트림도
+//! `Button::style` + `resource_overrides`(그리고 `AppBarButton`)로 변형을 만들고,
+//! 비활성은 `is_enabled(false)`로 WinUI에 맡긴다.
+//!
 //!
 //! **언제 쓰나**: "주요 동작 / 보조 동작 / 위험한 동작"을 구분해야 할 때.
 //!
@@ -25,7 +29,6 @@
 //! - `style`/`resource_overrides`는 **`Button` 전용**이다. 다른 컨트롤은 `<Raw>`에서
 //!   WinUI 속성으로 조정한다(예제 24).
 
-use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{ElmInput, ElmView, RawSlot};
 use windows_reactor::{
     App, AppBarButton, AppBarButtonSlot, Button, ButtonStyle, ChildrenControl, Color, Component,
@@ -224,6 +227,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use elm_magic::prelude::*;
     use super::*;
     use elm_magic_windows_reactor::{plan, Pass, PlanNode};
 

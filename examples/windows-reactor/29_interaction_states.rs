@@ -1,4 +1,8 @@
 //! windows-reactor 예제 29 — **상태 표현과 전환**: 정상/로딩/오류/비활성 + 부드러운 전환
+//! **업스트림 대응**: `opacity-transition` · `scale-transition` · `exit-transition` ·
+//! `theme-transition` — 업스트림도 전환을 **컨트롤 속성**으로 선언하고 값이 바뀔 때 WinUI가
+//! 보간하게 둔다(애니메이션 루프를 돌리지 않는다).
+//!
 //!
 //! **언제 쓰나**: 같은 화면이 상태에 따라 다르게 보여야 할 때(로딩/오류/비활성).
 //!
@@ -23,7 +27,6 @@
 
 use std::time::Duration;
 
-use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{ElmInput, ElmView, RawSlot};
 use windows_reactor::{
     App, Border, Brush, Button, ChildrenControl, Color, Component, ComponentContext,
@@ -42,6 +45,9 @@ enum State {
 
 impl State {
     /// 상태 순서 — 버튼과 테스트가 같은 순서를 본다.
+    /// 화면은 인덱스를 직접 쓰고, 이 목록은 `#[cfg(test)]`가 "모든 상태 쌍"을
+    /// 훑을 때 쓴다 — `allow`는 "테스트 전용 계약"이라는 표시다.
+    #[allow(dead_code)]
     const ALL: [State; 4] = [State::Idle, State::Loading, State::Error, State::Disabled];
 
     fn label(self) -> &'static str {
@@ -263,6 +269,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use elm_magic::prelude::Ctx; // `State`는 이 파일이 직접 정의한다 — 전역 import는 모호해진다
     use super::*;
     use elm_magic_windows_reactor::{plan, Pass, PlanNode};
 

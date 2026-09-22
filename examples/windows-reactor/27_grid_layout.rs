@@ -1,4 +1,7 @@
 //! windows-reactor 예제 27 — **Grid 레이아웃**: 2D 배치 · 고정/가변 트랙 · 랩 그리드
+//! **업스트림 대응**: `gallery` · `stacker` · `solitaire`/`minesweeper`(2D 배치) —
+//! 업스트림이 `Grid::rows/columns` + `GridChildExt`를 쓰는 방식 그대로다.
+//!
 //!
 //! **언제 쓰나**: `StackPanel`(1D)로 안 되는 배치 — "사이드바 + 본문", "헤더/본문/푸터".
 //!
@@ -24,7 +27,6 @@
 //!   감싸는 편이 낫다(Grid에는 `padding`/`corner_radius`가 없다).
 //! - 자식의 `margin`은 Grid에서도 유효하다 — 여백이 필요하면 자식에 준다(예제 23).
 
-use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{ElmInput, ElmView, RawSlot};
 use windows_reactor::{
     App, Border, Brush, ChildrenControl, Component, ComponentContext, ContentControl, CornerRadius,
@@ -149,6 +151,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use elm_magic::prelude::*;
     use super::*;
     use elm_magic_windows_reactor::plan;
 

@@ -1,5 +1,9 @@
 //! windows-reactor 예제 04 — 이벤트가 메시지가 되어 상태를 바꾼다
 //!
+//! **업스트림 대응**: `function-component` · `radio-buttons` — 업스트림은 `enum Message`와
+//! `Component::update`를 손으로 쓰고, elm에서는 그 enum을 매크로가 만든다. "핸들러는
+//! 항상 메시지 큐를 거친다"는 규칙도 같다.
+//!
 //! **언제 쓰나**: "클릭했는데 화면이 안 바뀐다"를 이해하거나, 갱신 경로를 줄이고 싶을 때.
 //!
 //! **동작 순서** (`crates/elm-magic-windows-reactor/src/winui.rs`)
@@ -21,7 +25,6 @@
 //!   넣으면 타이핑마다 전체가 다시 만들어진다.
 //! - 무거운 파생 계산은 슬롯이 아니라 효과(`<-`)나 앱 코드에서 한다.
 
-use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{ElmInput, ElmView};
 use windows_reactor::{Component, ComponentContext, View, ViewContext};
 
@@ -69,6 +72,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use elm_magic::prelude::*;
     use super::*;
     use elm_magic_windows_reactor::plan;
 

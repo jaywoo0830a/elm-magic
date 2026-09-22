@@ -1,5 +1,9 @@
 //! windows-reactor 예제 17 — 탭/표 헤더가 어떻게 옮겨지는가 (+ 진짜 `TabView`는 `<Raw>`)
 //!
+//! **업스트림 대응**: `tab-view-add-button` · `navigation-view-pane` ·
+//! `navigation-view-icons` — 업스트림은 `TabView`/`NavigationView`를 **컨테이너 + 슬롯**으로
+//! 조립한다. 아래 `tabs`가 `<Raw>`에서 하는 일이 정확히 그것이다.
+//!
 //! **elm 태그의 매핑** (`crates/elm-magic-windows-reactor/src/plan.rs`)
 //! | elm | WinUI | 비고 |
 //! |---|---|---|
@@ -24,7 +28,6 @@
 //! 메서드**다 — `ChildrenControl` / `SlotsControl` / `ContentControl`을 `use`하지
 //! 않으면 `no method named ... found`가 난다(아래 `tabs`).
 
-use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{ElmInput, ElmView, RawSlot};
 use windows_reactor::{
     App, ChildrenControl, Component, ComponentContext, ContentControl, SlotsControl, StackPanel,
@@ -88,6 +91,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use elm_magic::prelude::*;
     use super::*;
     use elm_magic_windows_reactor::plan;
 

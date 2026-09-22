@@ -1,5 +1,9 @@
 //! windows-reactor 예제 14 — 피드백 위젯이 **WinUI 컨트롤**로 그려진다
 //!
+//! **업스트림 대응**: `form` · `radio-buttons` · `message-box` — 업스트림이
+//! `ProgressBar`/`CheckBox`/`InfoBar`를 쓰는 자리와 **같은 컨트롤을 같은 방식**
+//! (controlled)으로 쓴다.
+//!
 //! **언제 쓰나**: 로딩/진행/체크/배너를 테마에 맞게 보여줄 때. 어댑터가 WinUI 컨트롤을
 //! 골라 쓰므로 **추가 코드가 없다**.
 //!
@@ -22,7 +26,6 @@
 //! - **색/간격은 여기 없다**: `css!`는 이 백엔드에서 효과가 없다(예제 16).
 //!   `InfoBar`의 severity, `ProgressBar`의 테마 악센트가 곧 스타일이다.
 
-use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{ElmInput, ElmView};
 use windows_reactor::{App, Component, ComponentContext, View, ViewContext};
 
@@ -72,6 +75,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use elm_magic::prelude::*;
     use super::*;
     use elm_magic_windows_reactor::{plan, PlanKind, Severity};
 

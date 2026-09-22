@@ -8,6 +8,13 @@
 //! - 문장 위치의 메서드 호출은 슬롯 변경으로 변환된다: `items.push(x)`,
 //!   `items.remove(요소)`, `items.reverse()`. **실제 `Vec` 메서드**여야 한다.
 //!
+//! **업스트림 대응** (`crates/samples/reactor/`)
+//! - `keyed-list-reorder` — `KeyedView::new(키, 뷰)` + `keyed_children`에 **진짜 키**를
+//!   넘겨 행 컴포넌트의 상태가 재정렬을 따라가게 한다. elm 트리는 키를 노출하지 않으므로
+//!   이 어댑터는 **위치 기반 키**를 넘긴다(아래 한계) — WinUI 수준 키가 꼭 필요하면
+//!   그 자리를 `<Raw>`로 만들어 `KeyedView`를 직접 쓴다(예제 08).
+//! - `virtual` — `ItemsRepeater` 기반 가상 스크롤. elm-magic에는 가상 스크롤이 없다(아래).
+//!
 //! **Reactor 쪽 한계 (중요)**
 //! - elm 트리는 **key를 노출하지 않는다**(코어가 아레나 슬롯 경로로 관리한다).
 //!   그래서 어댑터는 `keyed_children`을 쓰되 키를 **인덱스**로 만든다.
@@ -21,7 +28,6 @@
 //! **베스트 패턴**: 행이 자기 상태를 가질 때만 `<For>`를 쓰고, 정적인 목록은
 //! 그냥 `<Text>`를 나열한다(불필요한 슬롯을 만들지 않는다).
 
-use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{ElmInput, ElmView};
 use windows_reactor::{App, Component, ComponentContext, View, ViewContext};
 
@@ -31,7 +37,7 @@ struct Item {
     text: String,
 }
 
-/// 행마다 자기 상태(`n`)를 갖는다 — elm keyed 슬롯이 재정렬에도 따라간다.
+// 행마다 자기 상태(`n`)를 갖는다 — elm keyed 슬롯이 재정렬에도 따라간다.
 elm_magic::view! {
     fn RowItem(text: String, n = 0) {
         <Row>

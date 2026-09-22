@@ -1,4 +1,7 @@
 //! windows-reactor 예제 25 — **색 체계**: 테마 브러시 8종 · 브랜드 팔레트 · 대비 규칙
+//! **업스트림 대응**: `color-scheme` · `theme-brush` · `theme-transition` — 업스트림이
+//! 참조하는 테마 브러시가 곧 [`THEME_BRUSHES`] 8종이고, 그 밖의 색은 업스트림도 직접 정한다.
+//!
 //!
 //! **언제 쓰나**: 색을 화면마다 고르기 시작했을 때. 색은 **고르는 것이 아니라 정하는 것**이다.
 //!
@@ -27,7 +30,6 @@
 //! `Color::argb(a, ..)`는 알파를 직접 준다. `Brush::from(ThemeBrush)`와
 //! `Brush::from(Color)`가 둘 다 `Brush`로 들어가므로 함수 인자 하나로 받을 수 있다.
 
-use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{ElmInput, ElmView, RawSlot};
 use windows_reactor::{
     App, Border, Brush, ChildrenControl, Color, Component, ComponentContext, ContentControl,
@@ -259,6 +261,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use elm_magic::prelude::*;
     use super::*;
     use elm_magic_windows_reactor::{plan, Pass, PlanNode};
 

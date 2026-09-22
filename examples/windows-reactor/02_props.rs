@@ -1,5 +1,10 @@
 //! windows-reactor 예제 02 — props (`ElmInput`의 동일성 비교)
 //!
+//! **업스트림 대응**: `crates/samples/reactor/component-input`(Input 계약) ·
+//! `function-component`(props로 그리는 컴포넌트). 업스트림의 `Input: Clone + PartialEq`
+//! 규약을 그대로 따르고, 차이는 "생성된 props가 `PartialEq`를 파생하지 않는다" 하나뿐이라
+//! [`ElmInput`] 래퍼가 그 자리를 메운다.
+//!
 //! **언제 쓰나**: 화면을 부모 상태에서 분리해 재사용할 때.
 //!
 //! **왜 래퍼가 필요한가** (`crates/elm-magic-windows-reactor/src/winui.rs`)
@@ -16,8 +21,7 @@
 //! - 필수 prop(기본값 없는 매개변수)을 `None`으로 두면 첫 렌더에서 panic한다 —
 //!   `Some(..)`을 채워야 한다.
 
-use elm_magic::prelude::*;
-use elm_magic_windows_reactor::{plan, ElmInput, ElmView};
+use elm_magic_windows_reactor::{ElmInput, ElmView};
 use windows_reactor::{Component, ComponentContext, View, ViewContext};
 
 elm_magic::view! {
@@ -66,8 +70,9 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use elm_magic::prelude::*;
     use super::*;
-    use elm_magic_windows_reactor::Pass;
+    use elm_magic_windows_reactor::{plan, Pass};
 
     fn panel_pass(props: PanelProps) -> Pass {
         let mut ctx = Ctx::new();

@@ -1,4 +1,7 @@
 //! windows-reactor 예제 28 — **스크롤과 고정 영역**: `ScrollViewer` · 머리글/바닥글 고정
+//! **업스트림 대응**: `scroll-viewer` · `virtual` · `gallery` — 업스트림은 `ScrollViewer`의
+//! 자식에 `ItemsRepeater`를 넣어 **가상화**한다. 항목이 아주 많으면 그 방식이 정답이다.
+//!
 //!
 //! **언제 쓰나**: 내용이 창보다 길 때. 스크롤은 **WinUI의 몫**이고, 우리는 "무엇이 고정되고
 //! 무엇이 스크롤되는가"만 정한다.
@@ -21,7 +24,6 @@
 //! - **스크롤 위치는 elm 상태가 아니다**(WinUI가 소유한다). elm이 다시 그려도 유지된다 —
 //!   "상태는 elm, 표현은 WinUI"의 경계가 여기서도 그대로다.
 
-use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{ElmInput, ElmView, RawSlot};
 use windows_reactor::{
     App, Border, Brush, ChildrenControl, Component, ComponentContext, ContentControl, CornerRadius,
@@ -141,6 +143,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use elm_magic::prelude::*;
     use super::*;
     use elm_magic_windows_reactor::{plan, Pass, PlanNode};
 

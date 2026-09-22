@@ -22,6 +22,13 @@
 //!   키는 `concat!(module_path!(), "::{store}.{field}")` 형식이다
 //!   (`crates/elm-magic-macros/src/store.rs`) — 오타는 조용한 no-op이 된다.
 //!
+//! **업스트림 대응** (`crates/samples/reactor/context`)
+//! - Reactor에는 **자기 `Context`**가 있다: `Context::<String>::new(..)` +
+//!   `View::provide(&ctx, value, child)` + `ViewContext::use_context(&ctx)`. 그것은
+//!   **Reactor 컴포넌트 사이**의 공유이고, `#[store]`는 **elm 아레나 안**의 공유다 —
+//!   층이 다르다. 호스트 쪽 전역(테마·로그인 사용자)은 Reactor `Context`,
+//!   화면 안의 전역은 `#[store]`로 두는 것이 정석이다.
+//!
 //! **테스트 격리**: 테스트마다 새 아레나가 만들어지므로 store 이름이 겹쳐도 안전하다.
 
 use elm_magic::prelude::*;
@@ -58,7 +65,7 @@ elm_magic::view! {
     }
 }
 
-/// 공유가 필요하므로 **루트 컴포넌트 하나**만 붙인다.
+// 공유가 필요하므로 **루트 컴포넌트 하나**만 붙인다.
 elm_magic::view! {
     fn Root() {
         <Col>

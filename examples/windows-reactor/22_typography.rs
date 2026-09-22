@@ -1,5 +1,9 @@
 //! windows-reactor 예제 22 — **타이포그래피**: 크기 스케일 · 굵기 · 줄바꿈/말줄임
 //!
+//! **업스트림 대응**: `text-block` · `text-trimming` · `icon`/`icon-elements` — 업스트림도
+//! 타이포를 `TextBlock` 속성(`font_size`/`font_weight`/`text_wrapping`/`text_trimming`)으로만
+//! 다룬다(폰트 패밀리·행간은 Reactor가 감싸지 않는다).
+//!
 //! **언제 쓰나**: 글자 크기가 화면마다 제각각이 되기 시작할 때.
 //!
 //! **Reactor 0.100이 노출하는 글자 API는 이게 전부다**
@@ -25,7 +29,6 @@
 //! 없다(예제 21). **렌더 본문에서 `let scale = type_scale(compact);`로 계산**해 캡처한다.
 //! 목록처럼 길이가 변하는 내용은 `keyed_children` + `KeyedView`(키는 인덱스)로 만든다.
 
-use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{ElmInput, ElmView, RawSlot};
 use windows_reactor::{
     App, ChildrenControl, Component, ComponentContext, FontWeight, KeyedView, LayoutControl,
@@ -203,6 +206,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use elm_magic::prelude::*;
     use super::*;
     use elm_magic_windows_reactor::{plan, Pass, PlanNode};
 

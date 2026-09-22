@@ -1,5 +1,9 @@
 //! windows-reactor 예제 16 — **`css!` 없이 스타일하기** (WinUI 테마/리소스)
 //!
+//! **업스트림 대응**: `theme-brush` · `color-scheme` · `theme-transition` +
+//! `shape`/`card`/`text-block`. 업스트림에는 스타일 계층 자체가 없다 — 색·모양·글자가
+//! 전부 **컨트롤 속성**이다(`css!`가 효과가 없는 이유가 여기 있다).
+//!
 //! **이 어댑터는 스타일 계층을 지원하지 않는다** — 의도다.
 //! `css!`/`class`는 어댑터가 **읽지 않으므로** 이 백엔드에서 아무 효과가 없다:
 //!
@@ -30,7 +34,6 @@
 //! - 같은 조합이 여러 화면에 필요하면 **어댑터의 계획 층에 매핑을 추가**하는 편이 낫다
 //!   (`crates/elm-magic-windows-reactor/src/plan.rs`).
 
-use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{ElmInput, ElmView, RawSlot};
 use windows_reactor::{
     App, Border, Brush, ChildrenControl, Component, ComponentContext, ContentControl, CornerRadius,
@@ -93,7 +96,6 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use elm_magic_windows_reactor::plan;
 
     /// 어댑터가 클래스를 **읽지 않는다**는 사실을 계약으로 고정한다.

@@ -1,5 +1,9 @@
 //! windows-reactor 예제 10 — 스트림 `->` (진행률·로그를 값마다 반영)
 //!
+//! **업스트림 대응**: `async-state`(진행 상태 갱신). 업스트림은 백그라운드 작업이
+//! 메시지마다 상태를 갱신하고, 여기서는 **스트림**이 그 자리를 대신한다 — 펌프만
+//! 호스트/어댑터(`drive`)가 맡는다.
+//!
 //! **언제 쓰나**: 이터레이터/채널이 내보내는 값을 순서대로 상태에 반영할 때.
 //!
 //! **문법** (사양서 5.4, `tests/stream.rs`)
@@ -24,8 +28,7 @@
 //!   클로저에 `log`라는 지역 변수가 없다(E0425). 화면 텍스트의 `"{log}"`는
 //!   요소 자리라서 매크로가 직접 보간하므로 그대로 쓸 수 있다.
 
-use elm_magic::prelude::*;
-use elm_magic_windows_reactor::{drive, ElmInput, ElmView};
+use elm_magic_windows_reactor::{ElmInput, ElmView};
 use windows_reactor::{App, Component, ComponentContext, View, ViewContext};
 
 fn upload_progress() -> impl Iterator<Item = i32> {
@@ -67,8 +70,9 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use elm_magic::prelude::*;
     use super::*;
-    use elm_magic_windows_reactor::plan;
+    use elm_magic_windows_reactor::{drive, plan};
 
     /// 테스트 하네스의 `pump()`가 하는 일이 곧 앱이 해야 하는 일이다.
     #[test]

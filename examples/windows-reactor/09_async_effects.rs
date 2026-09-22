@@ -1,5 +1,10 @@
 //! windows-reactor 예제 09 — 비동기 효과 `<-` 와 **누가 실행하는가**
 //!
+//! **업스트림 대응**: `async-state` · `use-effect` — 업스트림은
+//! `context.spawn_background(..)`로 결과를 **메시지**로 돌려받는다. 이 어댑터의
+//! `ElmMessage`는 `Rc<dyn Fn>`을 나르므로 `Send`가 아니어서 elm 쪽에서 같은 일을 할 수
+//! 없다 — 그 자리는 **호스트**가 맡는다(예제 11).
+//!
 //! **언제 쓰나**: 마운트/클릭 뒤에 값을 받아와 상태에 넣을 때.
 //!
 //! **가장 중요한 사실**
@@ -21,7 +26,6 @@
 //! **낙관적 업데이트**: `count += 1;`을 **먼저**, `<-`를 나중에 — UI가 즉시 반응하고
 //! 응답이 오면 덮어쓴다.
 
-use elm_magic::prelude::*;
 use elm_magic_windows_reactor::{drive, ElmInput, ElmView};
 use windows_reactor::{App, Component, ComponentContext, View, ViewContext};
 
@@ -90,6 +94,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use elm_magic::prelude::*;
     use super::*;
     use elm_magic_windows_reactor::plan;
 
