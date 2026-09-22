@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## [0.8.9] — 2026-09-22
+
+### Changed
+
+- commit
+- commit
+- patch
+- ps
+
 ## [0.8.7] — 2026-09-21
 
 ### Changed
