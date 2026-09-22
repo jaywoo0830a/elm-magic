@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    windows-reactor 참고 예제 20개를 Windows에서 테스트하거나 실행한다.
+    windows-reactor 참고 예제 30개를 Windows에서 테스트하거나 실행한다.
 
 .DESCRIPTION
     `examples/windows-reactor/*.rs` 는 `fn main()` 을 가진 **독립 프로그램**이라
@@ -22,7 +22,7 @@
 
 .PARAMETER Example
     예제 번호 또는 이름(접두어 일치). 예: `-Example 09`, `-Example 20_app_skeleton`.
-    생략하면 20개 전부.
+    생략하면 30개 전부.
 
 .PARAMETER Filter
     테스트 이름 필터. 하네스에 `-- <필터>` 로 전달된다(예: `-Filter counter`).

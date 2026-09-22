@@ -25,7 +25,7 @@ name = "elm-magic-windows-reactor-examples"
 version = "0.0.0"
 edition = "2021"
 publish = false
-description = "elm-magic windows-reactor 참고 예제 20개 (Windows/WinUI 3 전용)"
+description = "elm-magic windows-reactor 참고 예제 30개 (Windows/WinUI 3 전용)"
 license = "MIT"
 
 [workspace]
@@ -143,4 +143,54 @@ required-features = ["winui"]
 [[example]]
 name = "20_app_skeleton"
 path = "20_app_skeleton.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "21_style_tokens"
+path = "21_style_tokens.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "22_typography"
+path = "22_typography.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "23_spacing_and_rhythm"
+path = "23_spacing_and_rhythm.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "24_shapes_and_borders"
+path = "24_shapes_and_borders.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "25_color_system"
+path = "25_color_system.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "26_button_variants"
+path = "26_button_variants.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "27_grid_layout"
+path = "27_grid_layout.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "28_scrollable_panes"
+path = "28_scrollable_panes.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "29_interaction_states"
+path = "29_interaction_states.rs"
+required-features = ["winui"]
+
+[[example]]
+name = "30_style_guide"
+path = "30_style_guide.rs"
 required-features = ["winui"]

@@ -2,7 +2,7 @@
 
 `elm-magic`을 **egui**(`elm-magic-egui`), **gpui-kit**(`elm-magic-gpui`),
 **WinUI 3 / windows-reactor**(`elm-magic-windows-reactor`)에서 각각 어떻게 쓰는지
-정리한 베스트 패턴 모음이다. 예제 20개씩, 총 60개.
+정리한 베스트 패턴 모음이다 — egui 20개 · gpui 20개 · windows-reactor 30개(실행 가능).
 
 ```
 examples/
@@ -10,8 +10,8 @@ examples/
 ├── egui/01_…20_*.rs        ← egui 어댑터 + eframe/egui 앱 패턴
 ├── gpui/01_…20_*.rs        ← gpui-kit 어댑터 + ElmView 패턴
 └── windows-reactor/        ← WinUI 3 어댑터 (스타일 계층 없음)
-    ├── 01_…20_*.rs         ←   예제 20개 (`fn main()` + WinUI 호스트)
-    ├── Cargo.toml          ←   예제 전용 패키지 — `[[example]]` 20개 등록 + `winui` 게이트
+    ├── 01_…30_*.rs         ←   예제 30개 (`fn main()` + WinUI 호스트)
+    ├── Cargo.toml          ←   예제 전용 패키지 — `[[example]]` 30개 등록 + `winui` 게이트
     └── run-tests.ps1       ←   Windows 실행/테스트 편의 스크립트
 ```
 
@@ -64,7 +64,7 @@ windows-reactor 세트는 **문서가 아니라 실제로 도는 코드**다 —
 Cargo 타겟으로 등록한다. 저장소 루트에서:
 
 ```powershell
-# 20개 전부 — 각 예제를 테스트 하네스로 컴파일해 안의 #[cfg(test)]를 실행한다
+# 30개 전부 — 각 예제를 테스트 하네스로 컴파일해 안의 #[cfg(test)]를 실행한다
 cargo test --examples --features winui --manifest-path examples\windows-reactor\Cargo.toml
 
 # 하나만
@@ -78,10 +78,10 @@ cargo run --example 09_async_effects --features winui --manifest-path examples\w
 
 ```powershell
 cd examples\windows-reactor                     # 이 디렉터리에서 바로 돌려도 된다
-powershell -ExecutionPolicy Bypass -File run-tests.ps1                    # 20개 테스트
+powershell -ExecutionPolicy Bypass -File run-tests.ps1                    # 30개 테스트
 powershell -ExecutionPolicy Bypass -File run-tests.ps1 -List              # 목록+제목, 매니페스트 누락 경고
 powershell -ExecutionPolicy Bypass -File run-tests.ps1 -Example 09        # 하나만
-powershell -ExecutionPolicy Bypass -File run-tests.ps1 -Example 20 -Run   # 창
+powershell -ExecutionPolicy Bypass -File run-tests.ps1 -Example 30 -Run   # 창
 powershell -ExecutionPolicy Bypass -File run-tests.ps1 -Check             # 컴파일만
 powershell -ExecutionPolicy Bypass -File run-tests.ps1 -Filter counter    # 테스트 이름 필터
 ```
@@ -92,7 +92,7 @@ powershell -ExecutionPolicy Bypass -File run-tests.ps1 -Filter counter    # 테�
 ```powershell
 .\run-example.ps1 18            # 번호(또는 이름 접두어) 하나만
 .\run-example.ps1 -Example 09
-.\run-example.ps1 20 -Release   # 릴리스 빌드
+.\run-example.ps1 30 -Release   # 릴리스 빌드
 .\run-example.ps1               # 인자 없이: 목록을 보여주고 번호를 물어본다
 ```
 
@@ -168,7 +168,9 @@ windows-reactor는 **스타일 계층을 옮기지 않는다**(의도) — 구�
 - **성능이 궁금하면**: `egui/17`, `gpui/16`, 그리고 `crates/elm-magic-egui/benchmark/README.md`
 - **스타일을 `css!` 없이 쓰려면**: `gpui/16` (스타일 = `style::register`, `css!`는 그 호출을
   시작 섹션에서 대신 해 주는 매크로일 뿐)
-- **스타일 계층 없이 WinUI로 쓰려면**: `windows-reactor/01` → `08`(Raw) → `16`(스타일) → `20`
+- **스타일 계층 없이 WinUI로 쓰려면**: `windows-reactor/01` → `08`(Raw) → `16`(스타일 입문)
+  → `21`~`30`(디자인 시스템: 21 토큰/테마 · 22 타이포 · 23 간격 · 24 모양 · 25 색 ·
+  26 버튼 · 27 Grid · 28 스크롤 · 29 상태/전환 · 30 종합 스타일 가이드)
 - **플랫폼 호스트와 elm을 잇는 법**: `windows-reactor/11`(props/콜백 prop), `gpui/12`(구독)
 - **앱 골격이 필요하면**: `egui/20`, `gpui/20`, `windows-reactor/20`
 
